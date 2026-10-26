@@ -2,9 +2,10 @@
 
 Reproducible parallel image-processing benchmarks on a single machine.
 
-The development foundation provides a FastAPI liveness endpoint and an
-accessible React shell. Processing, worker pools, benchmark measurements, CLI,
-history, and charts are not implemented yet. No benchmark results exist yet.
+The Python package provides deterministic sequential batch image processing and
+a minimal processing CLI. The web application remains an accessible shell with a
+FastAPI liveness check. Worker pools, benchmark measurements, history, and charts
+are not implemented yet. No benchmark results exist yet.
 
 ## Requirements
 
@@ -41,7 +42,25 @@ Requests time out after five seconds; failures show a safe message and allow ret
 Stop either server with Ctrl+C.
 
 For an API-only environment, install `--extra api` instead of `--extra dev`.
-The base Python package has no runtime dependencies and imports without FastAPI.
+The base Python package depends only on Pillow and runs without FastAPI.
+
+## Process images
+
+From the repository root, choose a PNG/JPEG dataset and a **new** output directory
+whose parent already exists:
+
+```powershell
+uv run --locked --project apps/server tachyron-process datasets/example --output results/example-1 --width 256 --height 256
+```
+
+Each image is oriented, composited onto white, resized with Lanczos, and converted
+to grayscale PNG. A stable manifest and `run.json` preserve input identities,
+output mappings, and real success/failure counts. Existing results are never
+replaced. Exit codes are 0 for success, 1 for per-image failures, 2 for setup/report
+errors, and 130 for interruption. There are no benchmark timings or worker options.
+
+See [sequential processing](docs/processing.md) for a generated tiny dataset,
+the exact image contract, safety limits, and Python usage.
 
 ## Quality checks
 
@@ -82,6 +101,8 @@ the backend on the same origin; Vite's development proxy is not a production ser
 ## Ownership
 
 - `apps/server/tachyron/`: reusable Python package; `api.py` owns HTTP transport only.
+- `apps/server/tachyron/processing/`: manifest, image semantics, and sequential execution.
+- `apps/server/tachyron/cli.py`: processing arguments, JSON reporting, and exit codes.
 - `apps/web/src/api/`: browser HTTP contract validation and cancellation.
 - `apps/web/src/App.tsx`: minimal application shell; no benchmark state or calculations.
 - Root quality configuration and `.github/workflows/`: repository-wide gates.

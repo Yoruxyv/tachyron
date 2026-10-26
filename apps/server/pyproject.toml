@@ -7,7 +7,12 @@ name = "tachyron"
 version = "0.1.0"
 description = "Single-host parallel image-processing benchmarks."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pillow>=13,<14",
+]
+
+[project.scripts]
+tachyron-process = "tachyron.cli:main"
 
 [project.optional-dependencies]
 api = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1"]

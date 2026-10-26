@@ -55,7 +55,7 @@ jobs:
       - name: Import the base package without the API extra
         run: >-
           uv run --locked --isolated --project apps/server --no-default-groups python -I -c
-          "import importlib.util; import tachyron; assert importlib.util.find_spec('fastapi') is None"
+          "import importlib.util; import tachyron.cli; import tachyron.processing; assert importlib.util.find_spec('fastapi') is None"
 
   frontend-quality:
     runs-on: ubuntu-latest
