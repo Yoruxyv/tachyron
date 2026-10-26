@@ -1,0 +1,5 @@
+# Python and TOML belong to Ruff; lockfiles belong to their package managers.
+**/*.py
+**/*.toml
+**/uv.lock
+**/package-lock.json

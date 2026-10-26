@@ -1,0 +1,29 @@
+[build-system]
+requires = ["uv_build==0.11.32"]
+build-backend = "uv_build"
+
+[project]
+name = "tachyron"
+version = "0.1.0"
+description = "Single-host parallel image-processing benchmarks."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+api = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1"]
+dev = [
+    "tachyron[api]",
+    "pyright>=1.1.400,<2",
+    "pytest>=8,<10",
+    "ruff>=0.16.3,<0.17",
+    "httpx2>=2.16,<3",
+]
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../.."]
+addopts = "--strict-config --strict-markers"
+filterwarnings = ["error"]
