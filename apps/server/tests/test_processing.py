@@ -396,9 +396,10 @@ def test_symlink_escape_is_rejected_at_discovery_and_execution(tmp_path: Path) -
     try:
         link.symlink_to(tmp_path / "outside.png")
     except OSError as error:
-        if sys.platform != "win32":
+        if sys.platform == "win32":
+            pytest.skip(f"OS does not permit symlink creation: {error.errno}")
+        else:
             raise
-        pytest.skip(f"OS does not permit symlink creation: {error.errno}")
     with pytest.raises(ProcessingError, match="link"):
         build_manifest(dataset)
     (dataset / "a.png").unlink()
