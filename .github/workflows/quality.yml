@@ -51,11 +51,13 @@ jobs:
           enable-cache: true
           cache-dependency-glob: apps/server/uv.lock
       - run: uv sync --locked --project apps/server --extra dev
-      - run: uv run --locked --project apps/server pytest apps/server/tests -q
+      - run: uv run --locked --project apps/server pytest apps/server/tests -q -m "not spawn"
+      - name: Exercise real spawn workers and failure cleanup
+        run: uv run --locked --project apps/server pytest apps/server/tests/test_workers.py -q -m spawn
       - name: Import the base package without the API extra
         run: >-
           uv run --locked --isolated --project apps/server --no-default-groups python -I -c
-          "import importlib.util; import tachyron.cli; import tachyron.processing; assert importlib.util.find_spec('fastapi') is None"
+          "import importlib.util; import tachyron.cli; import tachyron.processing; import tachyron.workers; assert importlib.util.find_spec('fastapi') is None"
 
   frontend-quality:
     runs-on: ubuntu-latest

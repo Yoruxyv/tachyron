@@ -114,12 +114,13 @@ class ImageOutcome:
 
 @dataclass(frozen=True, slots=True)
 class BatchResult:
-    """Complete accounting of a sequential attempt, including partial failures."""
+    """Complete accounting of an execution attempt, including per-image failures."""
 
     manifest: DatasetManifest
     config: TransformConfig
     output_dir: Path
     outcomes: tuple[ImageOutcome, ...]
+    requested_workers: int | None = None
 
     @property
     def succeeded(self) -> int:
@@ -133,7 +134,7 @@ class BatchResult:
 
     def to_dict(self) -> dict[str, object]:
         """Return a portable report without absolute input/output paths or timing."""
-        return {
+        report: dict[str, object] = {
             "schema_version": 1,
             "pipeline": "resize-grayscale-v1",
             "pillow_version": pillow_version,
@@ -148,3 +149,11 @@ class BatchResult:
             "failed": self.failed,
             "outcomes": [asdict(outcome) for outcome in self.outcomes],
         }
+        if self.requested_workers is not None:
+            report["execution"] = {
+                "mode": "process_pool",
+                "requested_workers": self.requested_workers,
+                "start_method": "spawn",
+                "max_in_flight": 2 * self.requested_workers,
+            }
+        return report
