@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -139,3 +140,40 @@ jobs:
           lycheeVersion: v0.24.2
           args: --offline --include-fragments=anchor-only README.md 'docs/**/*.md'
           output: .cache/lychee-local.md
+
+  security:
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/security.yml
+
+  quality-gate:
+    name: Quality gate
+    if: ${{ always() }}
+    needs:
+      - backend-quality
+      - backend-tests
+      - frontend-quality
+      - frontend-tests
+      - repository-text
+      - workflow-lint
+      - docs-links
+      - security
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every prerequisite to succeed
+        env:
+          REQUIRED_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["REQUIRED_JOB_RESULTS"])
+          failed = [name for name, job in results.items() if job.get("result") != "success"]
+          if not results or failed:
+              sys.exit("Required jobs did not succeed: " + ", ".join(failed))
+          print("All required jobs succeeded")
+          PY

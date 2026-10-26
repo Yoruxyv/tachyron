@@ -124,6 +124,23 @@ CI verifies the downloaded actionlint archive's pinned SHA256 before execution.
 No standalone shell scripts are introduced. actionlint may use ShellCheck if it is
 available on the runner; there is no separate speculative ShellCheck job.
 
+The required `Quality gate` waits for every quality job, including security checks.
+It fails if any prerequisite fails, is cancelled, or is skipped. Regression tests
+exercise the actual inline gate script and ensure its dependencies include every
+other quality job. No branch-protection bypass is used.
+
+The reusable `security.yml` scans Python and JavaScript/TypeScript with CodeQL and
+checks committed changes with pinned TruffleHog. Secret verification is disabled
+to avoid contacting credential providers; suspected secrets still fail the scan.
+Container scanning and build provenance are deferred until Docker images exist.
+
+`pr-labeler.yml` uses `pull_request_target` only for label metadata. It never checks
+out or runs pull-request code, and title/body data enter the shell through quoted
+environment variables. This workflow starts operating when it exists on the base
+branch; it is not a required quality check for introducing the workflow itself.
+Issue forms and the PR template describe Tachyron's actual scope and request
+sanitized evidence and disclosure of material AI assistance.
+
 ## Bundle baseline
 
 Build first, then run `bundle:check`. The standard-library Node script reports raw
