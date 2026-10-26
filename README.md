@@ -2,9 +2,9 @@
 
 Reproducible parallel image-processing benchmarks on a single machine.
 
-The Python package provides deterministic sequential batch image processing and
-a minimal processing CLI. The web application remains an accessible shell with a
-FastAPI liveness check. Worker pools, benchmark measurements, history, and charts
+The Python package provides deterministic sequential and spawn-process batch
+image processing through a minimal CLI. The web application remains an accessible
+shell with a FastAPI liveness check. Benchmark measurements, history, and charts
 are not implemented yet. No benchmark results exist yet.
 
 ## Requirements
@@ -56,8 +56,19 @@ uv run --locked --project apps/server tachyron-process datasets/example --output
 Each image is oriented, composited onto white, resized with Lanczos, and converted
 to grayscale PNG. A stable manifest and `run.json` preserve input identities,
 output mappings, and real success/failure counts. Existing results are never
-replaced. Exit codes are 0 for success, 1 for per-image failures, 2 for setup/report
-errors, and 130 for interruption. There are no benchmark timings or worker options.
+replaced. Exit codes are 0 for success, 1 for per-image failures, 2 for setup,
+execution, or report errors, and 130 for interruption. There are no benchmark timings.
+
+The command above remains sequential. Explicitly select a process pool with
+`--workers 1`, `--workers 2`, `--workers 4`, or `--workers 8`:
+
+```powershell
+uv run --locked --project apps/server tachyron-process datasets/example --output results/parallel-2 --width 256 --height 256 --workers 2
+```
+
+See [parallel workers](docs/workers.md) for bounded scheduling, spawn compatibility,
+failure/shutdown semantics, and the limits of cancellation. Worker counts are
+explicit experimental inputs; selecting more than reported logical CPUs warns.
 
 See [sequential processing](docs/processing.md) for a generated tiny dataset,
 the exact image contract, safety limits, and Python usage.
@@ -93,7 +104,8 @@ lint/type/tests/build checks on pull requests and pushes to `main`. Action revis
 and tool versions are pinned. The backend test matrix includes Linux and Windows.
 Prettier, Git-aware text hygiene, offline documentation links, and workflow linting
 also run in CI. External links run separately on a weekly schedule or manual trigger.
-Playwright E2E, worker integration, and load testing remain deferred.
+Real spawn integration runs in both OS/Python test matrices. Playwright E2E and
+load testing remain deferred.
 
 `npm run build` creates `apps/web/dist/`. A future deployment must serve `/health` from
 the backend on the same origin; Vite's development proxy is not a production server.
@@ -103,6 +115,7 @@ the backend on the same origin; Vite's development proxy is not a production ser
 - `apps/server/tachyron/`: reusable Python package; `api.py` owns HTTP transport only.
 - `apps/server/tachyron/processing/`: manifest, image semantics, and sequential execution.
 - `apps/server/tachyron/cli.py`: processing arguments, JSON reporting, and exit codes.
+- `apps/server/tachyron/workers/`: bounded process-pool ownership and ordered aggregation.
 - `apps/web/src/api/`: browser HTTP contract validation and cancellation.
 - `apps/web/src/App.tsx`: minimal application shell; no benchmark state or calculations.
 - Root quality configuration and `.github/workflows/`: repository-wide gates.

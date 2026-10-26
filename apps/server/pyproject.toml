@@ -31,4 +31,5 @@ module-root = ""
 testpaths = ["tests"]
 pythonpath = ["../.."]
 addopts = "--strict-config --strict-markers"
+markers = ["spawn: integration tests that create real spawn-context child processes"]
 filterwarnings = ["error"]

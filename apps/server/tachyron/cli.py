@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Hans Valerie
-"""Minimal sequential-processing adapter, with no benchmark or HTTP dependency."""
+"""Processing CLI with explicit sequential/pool selection and no HTTP dependency."""
 
 import argparse
 import json
@@ -13,6 +13,7 @@ from tachyron.processing import (
     build_manifest,
     run_sequential,
 )
+from tachyron.workers import WorkerExecutionError, run_parallel
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -26,7 +27,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         130 and preserve completed outputs; argument syntax errors exit with 2.
     """
     parser = argparse.ArgumentParser(
-        description="Sequentially resize and grayscale PNG/JPEG images."
+        description="Resize and grayscale PNG/JPEG images; default execution is sequential."
     )
     parser.add_argument("dataset", type=Path, help="Explicit input dataset directory")
     parser.add_argument(
@@ -37,12 +38,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--width", type=int, default=256)
     parser.add_argument("--height", type=int, default=256)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        choices=(1, 2, 4, 8),
+        help="Explicitly select a spawn-process pool; omit for sequential execution",
+    )
     args = parser.parse_args(argv)
     try:
         config = TransformConfig(width=args.width, height=args.height)
         manifest = build_manifest(args.dataset)
-        result = run_sequential(manifest, args.output, config)
+        result = (
+            run_sequential(manifest, args.output, config)
+            if args.workers is None
+            else run_parallel(manifest, args.output, config, args.workers)
+        )
         sys.stdout.write(json.dumps(result.to_dict(), sort_keys=True) + "\n")
+    except WorkerExecutionError:
+        sys.stderr.write(
+            "error: Parallel execution failed; completed outputs retained; no complete run report\n"
+        )
+        return 2
     except ProcessingError as error:
         sys.stderr.write(f"error: {error.code}: {error}\n")
         return 2

@@ -134,7 +134,7 @@ Default `ResourceLimits` are safety caps, not performance budgets:
 
 The output pixel cap bounds the requested raw grayscale workload to 256 MiB,
 before PNG overhead. Limits are checked before relevant reads/decodes/output
-creation; each image is processed sequentially. Full compressed snapshots and
+creation; the sequential runner processes one image at a time. Full compressed snapshots and
 several bounded image buffers are held in memory, so this is not a streaming
 decoder or an exact RSS quota. Python callers may explicitly supply another
 validated `ResourceLimits`; the CLI uses defaults, and reports record the limits.
@@ -167,9 +167,11 @@ assert result.succeeded + result.failed == len(manifest.entries)
 - `processing/models.py`: immutable configuration, safety limits, manifests, outcomes.
 - `processing/dataset.py`: bounded discovery, hashing, path and input revalidation.
 - `processing/processor.py`: top-level picklable `process_image` and exclusive writes.
-- `processing/__init__.py`: sequential execution and complete run report publication.
+- `processing/__init__.py`: shared run preparation/publication and sequential execution.
 - `cli.py`: argument parsing, JSON presentation, exit codes, interruption reporting.
 
-No module imports FastAPI or persistence. Process-pool ownership, worker comparison,
-timing, telemetry, experiment statistics, persistence, HTTP jobs, and dashboard
-workflows remain deferred. The existing liveness route is unchanged.
+No processing module imports FastAPI or persistence. Process-pool ownership is
+implemented separately in [parallel workers](workers.md), using the same image
+callable and shared run boundaries. Worker comparisons, timing, telemetry,
+experiment statistics, persistence, HTTP jobs, and dashboard workflows remain
+deferred. The existing liveness route is unchanged.

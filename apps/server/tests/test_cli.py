@@ -12,6 +12,42 @@ from PIL import Image
 
 from tachyron import cli
 from tachyron.cli import main
+from tachyron.workers import WorkerExecutionError
+
+
+def test_cli_workers_are_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dataset = tmp_path / "input"
+    dataset.mkdir()
+    with Image.new("RGB", (2, 2), "red") as image:
+        image.save(dataset / "a.png")
+    parallel = Mock(side_effect=AssertionError("default command must stay sequential"))
+    monkeypatch.setattr(cli, "run_parallel", parallel)
+    assert main([str(dataset), "--output", str(tmp_path / "sequential")]) == 0
+    parallel.assert_not_called()
+    capsys.readouterr()
+
+
+def test_cli_pool_failure_is_sanitized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dataset = tmp_path / "input"
+    dataset.mkdir()
+    with Image.new("RGB", (2, 2), "red") as image:
+        image.save(dataset / "a.png")
+    monkeypatch.setattr(
+        cli,
+        "run_parallel",
+        Mock(side_effect=WorkerExecutionError("private worker trace")),
+    )
+    assert (
+        main([str(dataset), "--output", str(tmp_path / "run"), "--workers", "2"]) == 2
+    )
+    captured = capsys.readouterr()
+    assert "Parallel execution failed" in captured.err
+    assert "private" not in captured.err
+    assert not captured.out
 
 
 @pytest.mark.parametrize(
