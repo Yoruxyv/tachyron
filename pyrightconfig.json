@@ -1,0 +1,25 @@
+{
+  "include": ["."],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/.cache",
+    "**/node_modules",
+    "**/dist"
+  ],
+  "extraPaths": ["apps/server"],
+  "venvPath": "apps/server",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "reportDeprecated": "error",
+  "reportUnreachable": "error",
+  "reportMissingTypeArgument": "error",
+  "reportMissingParameterType": "error",
+  "reportUnknownParameterType": "error",
+  "reportUnknownArgumentType": "error",
+  "reportUnknownMemberType": "error",
+  "reportUnknownVariableType": "error",
+  "reportImplicitOverride": "error",
+  "reportUnnecessaryTypeIgnoreComment": "error"
+}

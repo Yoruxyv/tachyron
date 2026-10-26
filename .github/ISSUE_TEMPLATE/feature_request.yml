@@ -1,0 +1,96 @@
+name: Feature request
+description: Propose a focused improvement to Tachyron
+title: 'feat: '
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please explain the problem first, then propose the feature. Tachyron
+        prioritizes correct processing, explicit configuration, reproducible
+        experiments, and an independently usable benchmark engine.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: This request fits Tachyron's single-host image-processing benchmark scope.
+          required: true
+        - label: I considered whether documentation or configuration already solves the problem.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Frontend
+        - Image processing
+        - Benchmark orchestration
+        - Observability
+        - Process workers
+        - Measurements and exports
+        - API
+        - Developer experience
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or user need should be addressed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other solutions or workarounds did you consider?
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or evaluation plan
+      description: |
+        For processing, measurement, or performance features, explain how correctness
+        and impact could be measured.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Expected impact
+      options:
+        - label: Changes a public API contract
+        - label: Adds or changes environment variables
+        - label: Requires a database migration
+        - label: Changes experiment reproducibility
+        - label: Changes CPU, memory, or disk requirements
+        - label: Changes cross-platform behavior
+        - label: Requires frontend changes
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false

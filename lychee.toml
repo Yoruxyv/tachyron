@@ -1,0 +1,8 @@
+no_progress = true
+timeout = 20
+max_retries = 2
+retry_wait_time = 2
+max_concurrency = 8
+
+# These development servers are intentionally absent during documentation checks.
+exclude = ['^http://127\.0\.0\.1:(5173|8000)(/|$)']

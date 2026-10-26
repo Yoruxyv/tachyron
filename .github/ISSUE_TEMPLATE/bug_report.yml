@@ -1,0 +1,120 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Tachyron
+title: 'fix: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug.
+
+        Do not include API keys, tokens, passwords, private datasets or image
+        contents, or personal data. Security vulnerabilities must be reported
+        using the Security contact link, not through this form.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: I reproduced this on the latest `main` branch or latest release.
+          required: true
+        - label: This is not a private security vulnerability.
+          required: true
+        - label: I removed credentials and private data from all evidence.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Frontend
+        - Backend API
+        - Image processing
+        - Benchmarking
+        - Measurements and monitoring
+        - Development tooling
+        - Dependency installation
+        - Configuration
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem
+      description: Describe what is wrong and why it matters.
+      placeholder: Tachyron returns...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence of steps.
+      placeholder: |
+        1. Configure...
+        2. Run...
+        3. Submit...
+        4. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or version
+      placeholder: Commit SHA, branch, or release tag
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        OS:
+        uv:
+        Python:
+        Node.js:
+        Browser:
+        Command used:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove credentials, private image contents, and personal data.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false
