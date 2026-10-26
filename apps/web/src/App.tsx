@@ -55,8 +55,8 @@ export default function App() {
           No benchmark runs yet
         </h2>
         <p className="mt-3 leading-relaxed text-neutral-400">
-          The development foundation is ready. Image processing and benchmark
-          execution will arrive in later phases.
+          Sequential image processing is available through the Python CLI.
+          Benchmark execution is not available yet.
         </p>
       </section>
 

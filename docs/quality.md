@@ -23,6 +23,12 @@ ESLint 10 in their peer ranges. It is [upstream EOL](https://eslint.org/version-
 revisit this pin when the plugins support the maintained major, preserving the rules.
 TypeScript 6.0.3 remains within typescript-eslint's supported `<6.1` range.
 
+Pillow 13's `resize` annotation references an undefined optional NumPy alias when
+NumPy is absent. Two narrowly scoped `reportUnknownMemberType` comments cover the
+typed tuple calls in processing and its pixel-reference test. They preserve all
+argument/return checking and the root policy; NumPy is not installed just for a
+third-party annotation. Revisit these comments when Pillow corrects its alias.
+
 ## Local commands
 
 Use uv 0.11.32, Node 24.18.0, and npm 11.6.4. From the repository root:
@@ -117,7 +123,7 @@ Install [actionlint 1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.
 and run:
 
 ```powershell
-actionlint .github/workflows/quality.yml .github/workflows/links.yml
+actionlint .github/workflows/quality.yml .github/workflows/links.yml .github/workflows/security.yml .github/workflows/pr-labeler.yml
 ```
 
 CI verifies the downloaded actionlint archive's pinned SHA256 before execution.

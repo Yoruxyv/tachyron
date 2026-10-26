@@ -19,6 +19,11 @@ describe('application shell', () => {
     expect(
       screen.getByRole('heading', { name: 'No benchmark runs yet' }),
     ).toBeVisible();
+    expect(
+      screen.getByText(
+        /Sequential image processing is available through the Python CLI/,
+      ),
+    ).toBeVisible();
     expect(screen.getByRole('status')).toHaveTextContent('Not checked');
     await user.tab();
     expect(
