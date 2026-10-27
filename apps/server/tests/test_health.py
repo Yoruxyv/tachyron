@@ -18,7 +18,7 @@ def test_health_reports_process_liveness() -> None:
 
 @pytest.mark.parametrize(
     ("method", "path", "status"),
-    [("POST", "/health", 405), ("GET", "/api/jobs", 404)],
+    [("POST", "/health", 405), ("GET", "/api/unknown", 404)],
 )
 def test_unsupported_requests_are_not_reported_healthy(
     method: str, path: str, status: int
