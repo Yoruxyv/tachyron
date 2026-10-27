@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   codeql:
-    name: CodeQL (${{ matrix.language }})
+    name: CodeQL (${{ matrix.language == 'python' && 'Python' || 'JavaScript/TypeScript' }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -32,7 +32,7 @@ jobs:
           category: /language:${{ matrix.language }}
 
   secret-scan:
-    name: Secret scan
+    name: Secret Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   backend-quality:
+    name: Backend Quality
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -33,6 +34,7 @@ jobs:
       - run: uv run --locked --project apps/server pyright --project pyrightconfig.json
 
   backend-tests:
+    name: Backend Tests (${{ matrix.os == 'ubuntu-latest' && 'Ubuntu' || 'Windows' }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -74,6 +76,7 @@ jobs:
           done
 
   frontend-quality:
+    name: Frontend Quality
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -97,6 +100,7 @@ jobs:
       - run: npm run bundle:check
 
   frontend-tests:
+    name: Frontend Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -116,6 +120,7 @@ jobs:
       - run: npm run test:coverage
 
   repository-text:
+    name: Repository Text
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -129,6 +134,7 @@ jobs:
       - run: uv run --python 3.11 scripts/check_repository.py
 
   workflow-lint:
+    name: Workflow Lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -145,6 +151,7 @@ jobs:
           "$RUNNER_TEMP/actionlint" .github/workflows/*.yml
 
   docs-links:
+    name: Documentation Links
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -158,6 +165,7 @@ jobs:
           output: .cache/lychee-local.md
 
   security:
+    name: Security
     permissions:
       contents: read
       security-events: write
