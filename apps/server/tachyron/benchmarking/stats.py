@@ -186,44 +186,16 @@ def _summarize_worker(workers: int, records: tuple[RunRecord, ...]) -> WorkerSum
     )
 
 
-def summarize(
-    experiment: Experiment, *, require_complete: bool = True
+def _complete_summaries(
+    records: tuple[RunRecord, ...],
 ) -> tuple[WorkerSummary, ...]:
-    """Compare means against the pool-based one-worker baseline, excluding warm-ups.
-
-    Args:
-        experiment: One fixed-context experiment with raw ordered evidence.
-        require_complete: Reject failures, or return clearly incomplete null summaries.
-
-    Returns:
-        One worker summary per supported configuration, in numeric worker order.
-
-    Raises:
-        BenchmarkError: Invalid provenance/accounting or incomplete comparison.
-    """
-    validate(experiment)
-    if experiment.status != "success":
-        if require_complete:
-            raise BenchmarkError(
-                "An unsuccessful experiment is not a complete comparison"
-            )
-        return tuple(
-            WorkerSummary(
-                workers,
-                sum(
-                    not record.step.warmup and record.step.workers == workers
-                    for record in experiment.records
-                ),
-                False,
-            )
-            for workers in WORKERS
-        )
+    """Compare validated complete evidence against its one-worker pool mean."""
     summaries = tuple(
         _summarize_worker(
             workers,
             tuple(
                 record
-                for record in experiment.records
+                for record in records
                 if record.step.workers == workers and not record.step.warmup
             ),
         )
@@ -241,3 +213,36 @@ def summarize(
             raise BenchmarkError("Speedup exceeds representable values")
         results.append(replace(summary, speedup=speedup, efficiency_percent=efficiency))
     return tuple(results)
+
+
+def summarize(
+    experiment: Experiment, *, require_complete: bool = True
+) -> tuple[WorkerSummary, ...]:
+    """Compare means against the pool-based one-worker baseline, excluding warm-ups.
+
+    Args:
+        experiment: One fixed-context experiment with raw ordered evidence.
+        require_complete: Reject failures, or return clearly incomplete null summaries.
+
+    Returns:
+        One worker summary per supported configuration, in numeric worker order.
+
+    Raises:
+        BenchmarkError: Invalid provenance/accounting or incomplete comparison.
+    """
+    validate(experiment)
+    if experiment.status == "success":
+        return _complete_summaries(experiment.records)
+    if require_complete:
+        raise BenchmarkError("An unsuccessful experiment is not a complete comparison")
+    return tuple(
+        WorkerSummary(
+            workers,
+            sum(
+                not record.step.warmup and record.step.workers == workers
+                for record in experiment.records
+            ),
+            False,
+        )
+        for workers in WORKERS
+    )

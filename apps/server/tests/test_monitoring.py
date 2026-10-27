@@ -102,6 +102,52 @@ def test_missing_observations_and_sampling_truncation_are_explicit() -> None:
     assert result.unavailable_reason == "sample_limit"
 
 
+def test_sampling_recovers_after_unreadable_birth_reuse_and_exit() -> None:
+    observations = (
+        snapshot(-1, 99),
+        snapshot(0, 0, child=False),
+        snapshot(1, 0.5, child=False),
+        Snapshot(2, (), False),
+        snapshot(3, 1, child=False),
+        snapshot(4, 1.5),
+        snapshot(5, 2),
+        Snapshot(
+            6,
+            (
+                ProcessSample(1, 10, 2.5, 2 * 1024**2),
+                ProcessSample(2, 99, 0, 3 * 1024**2),
+            ),
+            True,
+        ),
+        Snapshot(
+            7,
+            (
+                ProcessSample(1, 10, 3, 2 * 1024**2),
+                ProcessSample(2, 99, 0.5, 3 * 1024**2),
+            ),
+            True,
+        ),
+        snapshot(8, 3.5, child=False),
+        snapshot(9, 4, child=False),
+        snapshot(10, 99),
+    )
+    assert summarize_samples(
+        observations, 0, 9, truncated=True, reason="sample_limit"
+    ) == Telemetry(
+        observations=10,
+        cpu_samples=4,
+        memory_samples=9,
+        missed_observations=4,
+        cpu_observed_seconds=4,
+        cpu_mean_core_percent=87.5,
+        cpu_peak_core_percent=150,
+        rss_peak_mib=5,
+        observed_descendants_peak=1,
+        truncated=True,
+        unavailable_reason="sample_limit",
+    )
+
+
 def test_failed_sampler_start_is_unavailable_without_preventing_processing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

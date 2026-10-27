@@ -55,6 +55,34 @@ def _cpu_interval(previous: Snapshot, sample: Snapshot) -> tuple[float, float] |
     return (percent, duration) if math.isfinite(percent) else None
 
 
+def _accumulate_samples(
+    samples: tuple[Snapshot, ...],
+) -> tuple[list[tuple[float, float]], list[float], list[int], int]:
+    """Collect valid CPU intervals, readable RSS, descendant counts and misses."""
+    cpu: list[tuple[float, float]] = []
+    memory: list[float] = []
+    descendants: list[int] = []
+    missed = 0
+    previous: Snapshot | None = None
+    for sample in samples:
+        if not sample.complete or not sample.processes:
+            previous = None
+            missed += 1
+            continue
+        memory.append(sum(process.rss_bytes for process in sample.processes) / 1024**2)
+        descendants.append(len(sample.processes) - 1)
+        if previous is None:
+            previous = sample
+            continue
+        interval = _cpu_interval(previous, sample)
+        previous = sample
+        if interval is None:
+            missed += 1
+            continue
+        cpu.append(interval)
+    return cpu, memory, descendants, missed
+
+
 def summarize_samples(
     snapshots: tuple[Snapshot, ...],
     start: float,
@@ -69,25 +97,7 @@ def summarize_samples(
     remain unavailable. Means weight valid intervals by their observed duration.
     """
     samples = tuple(sample for sample in snapshots if start <= sample.at <= stop)
-    cpu: list[tuple[float, float]] = []
-    memory: list[float] = []
-    descendants: list[int] = []
-    missed = 0
-    previous: Snapshot | None = None
-    for sample in samples:
-        if not sample.complete or not sample.processes:
-            previous = None
-            missed += 1
-            continue
-        memory.append(sum(process.rss_bytes for process in sample.processes) / 1024**2)
-        descendants.append(len(sample.processes) - 1)
-        if previous is not None:
-            interval = _cpu_interval(previous, sample)
-            if interval is None:
-                missed += 1
-            else:
-                cpu.append(interval)
-        previous = sample
+    cpu, memory, descendants, missed = _accumulate_samples(samples)
     observed_seconds = sum(duration for _, duration in cpu)
     return Telemetry(
         observations=len(samples),

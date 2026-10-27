@@ -3,7 +3,7 @@
 
 import math
 from dataclasses import replace
-from typing import cast
+from typing import Literal, cast
 
 import pytest
 
@@ -13,7 +13,7 @@ from tachyron.benchmarking.models import (
     Telemetry,
     make_plan,
 )
-from tachyron.benchmarking.stats import describe, summarize, throughput
+from tachyron.benchmarking.stats import WorkerSummary, describe, summarize, throughput
 from tests.benchmark_helpers import example_experiment
 
 
@@ -42,6 +42,41 @@ def test_single_sample_stddev_and_absent_telemetry_remain_unavailable() -> None:
         for row in summarize(experiment)
     )
     assert describe(()).mean is None
+
+
+@pytest.mark.parametrize("status", ["failed", "interrupted"])
+def test_incomplete_comparisons_keep_counts_but_reject_partial_statistics(
+    status: Literal["failed", "interrupted"],
+) -> None:
+    original = example_experiment()
+    last = replace(
+        original.records[5],
+        status=status,
+        error_code="execution_failure",
+        elapsed_seconds=None,
+        succeeded=None,
+        failed=None,
+        telemetry=Telemetry(),
+    )
+    experiment = replace(original, records=(*original.records[:5], last), status=status)
+    rows = summarize(experiment, require_complete=False)
+    counts: dict[int, int] = dict.fromkeys((1, 2, 4, 8), 0)
+    counts[original.records[4].step.workers] += 1
+    counts[last.step.workers] += 1
+    assert rows == tuple(
+        WorkerSummary(workers, count, False) for workers, count in counts.items()
+    )
+    with pytest.raises(BenchmarkError, match="unsuccessful"):
+        summarize(experiment)
+    mixed = replace(
+        experiment,
+        records=(
+            replace(experiment.records[0], context_id="d" * 64),
+            *experiment.records[1:],
+        ),
+    )
+    with pytest.raises(BenchmarkError, match="Mixed context"):
+        summarize(mixed, require_complete=False)
 
 
 @pytest.mark.parametrize("seconds", [0.0, -1.0, math.nan, math.inf, 1e-320])
