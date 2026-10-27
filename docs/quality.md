@@ -147,6 +147,78 @@ branch; it is not a required quality check for introducing the workflow itself.
 Issue forms and the PR template describe Tachyron's actual scope and request
 sanitized evidence and disclosure of material AI assistance.
 
+## CodeScene policy
+
+Code Health scoring and PR failure conditions have separate configuration files:
+
+- [code-health-rules.json](../.codescene/code-health-rules.json) keeps `Large Method`
+  active at weight `0.5` only for `apps/server/tests/**`. Production weights and all
+  thresholds retain their defaults, including test-file length and cohesion.
+- [custom-quality-gates.json](../.codescene/custom-quality-gates.json) selects which
+  findings fail CodeScene's PR check. It does not change scores, suppress findings,
+  or exclude production Python, frontend code, tests, or tooling from analysis.
+
+One repository-relative `**/*` rule covers all content. CodeScene applies the
+first matching rule; unmatched content has no gates. Keep this catch-all when
+adding any narrower rules so future directories do not silently lose safeguards.
+
+| Gate                           | Enabled | Rationale                                              |
+| ------------------------------ | ------- | ------------------------------------------------------ |
+| `hotspot_decline`              | Yes     | Prevent health decline in frequently changed code.     |
+| `critical_health_rules`        | Yes     | Enforce critical findings, including Bumpy Road Ahead. |
+| `codeowners_for_critical_code` | Yes     | Retain reviewer tagging for critical code.             |
+| `new_code_health`              | No      | Avoid requiring a perfect score on every new file.     |
+| `advisory_health_rules`        | No      | Review advisory findings without automatic PR failure. |
+| `refactoring_goals`            | No      | Preserve the existing profile's goal-gate setting.     |
+| `supervise_goals`              | No      | Preserve the existing profile's goal-gate setting.     |
+
+Compared with Clean Code Collective, only `new_code_health` and
+`advisory_health_rules` change. The critical-code reviewer gate remains enabled;
+the optional goal gates are not newly activated. Assigned goals and future policy
+changes should be reviewed explicitly. Advisory findings and scores remain useful
+review evidence even when they do not fail the PR. Noncritical degradation outside
+hotspots therefore depends on human review rather than these mandatory gates.
+
+### Activation and verification
+
+The file takes effect only after CodeScene's project-specific Pull Request
+Integration selects and saves **Configuration as code**, and the file is present
+on the branch being evaluated. A local, uncommitted file is not active. Publishing
+the file alone while a predefined profile is selected does not activate it either.
+
+Make the configuration available in every repository belonging to the project
+before switching modes; a missing configuration produces a PR analysis error.
+Avoid simultaneous project-level overrides. The PR reads its branch's file, so
+existing branches need the policy before their analyses can use it. Do not change
+organization-wide settings for this repository's policy.
+
+After activation, request a fresh CodeScene check using its supported re-run
+control. Verify the reported profile, gates, scope, and results. Re-running the
+separate GitHub Actions workflow does not establish that CodeScene re-evaluated
+the PR. Confirm the GitHub required `Quality gate` still passes and all review
+threads remain resolved. Do not report the policy as active or passing before
+that provider evaluation succeeds.
+
+### Narrow exceptions
+
+An accepted finding requires an explicit review decision and owner approval for a
+CodeScene exception. Record the PR, rule, function, reviewed commit, and rationale.
+Use the PR-results exception control for the specific finding; keep critical-rule
+enforcement enabled globally. A resolved GitHub conversation is not an exception.
+
+CodeScene's documented suppression affects that PR and later checks of the same
+PR. Re-review it if the affected function changes before merge; automatic expiry
+on a code change is not assumed. Other PRs retain critical-rule enforcement. Do
+not replace a narrow exception with a file-wide exclusion, global weight change,
+or source-level disable directive. Gate configuration alone does not exempt
+previously reviewed critical findings or guarantee a green check.
+
+The schema, profile mapping, and exception scope follow the official
+[PR integration documentation](https://codescene.io/docs/guides/pr-integration/integrate-into-ci-cd.html).
+The [configuration guide](https://community.codescene.com/help/articles/5747235-setting-up-the-pull-request-integration-for-context-aware-quality)
+documents project activation and missing-file behavior. CodeScene's project
+template is available from its PR Integration configuration page.
+
 ## Bundle baseline
 
 Build first, then run `bundle:check`. The standard-library Node script reports raw

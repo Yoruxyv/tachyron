@@ -124,6 +124,11 @@ setup, execution, and assertions can form one readable test. Thresholds and all
 other rules, including file length and cohesion, retain their defaults. Production
 code receives no overrides. Test suites should still be organized by responsibility.
 
+The [repository-managed PR gate policy](.codescene/custom-quality-gates.json) retains
+critical-rule, hotspot-decline, and critical-code reviewer safeguards. It requires
+CodeScene project activation; see the [CodeScene policy](docs/quality.md#codescene-policy)
+for gate settings, exceptions, and verification.
+
 [CI](.github/workflows/quality.yml) runs genuine Python lint/format/type/tests and frontend
 lint/type/tests/build checks on pull requests and pushes to `main`. Action revisions
 and tool versions are pinned. The backend test matrix includes Linux and Windows.
