@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   label:
-    name: Label pull request
+    name: Label Pull Request
     runs-on: ubuntu-latest
     timeout-minutes: 2
 

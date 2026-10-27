@@ -32,7 +32,7 @@ jobs:
           category: /language:${{ matrix.language }}
 
   secret-scan:
-    name: Secret scan
+    name: Secret Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
