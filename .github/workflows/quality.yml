@@ -69,7 +69,7 @@ jobs:
             uv venv --python '${{ matrix.python }}' "$environment"
             uv pip install --python "$environment/$python_path" --constraint "$RUNNER_TEMP/constraints.txt" "$artifact"
             (cd "$RUNNER_TEMP" && "$environment/$python_path" -I "$GITHUB_WORKSPACE/apps/server/tests/installed_package_probe.py")
-            uv pip install --python "$environment/$python_path" --constraint "$RUNNER_TEMP/constraints.txt" "$artifact[api]"
+            uv pip install --python "$environment/$python_path" --constraint "$RUNNER_TEMP/constraints.txt" "${artifact}[api]"
             (cd "$RUNNER_TEMP" && "$environment/$python_path" -I "$GITHUB_WORKSPACE/apps/server/tests/installed_package_probe.py" --api)
           done
 
