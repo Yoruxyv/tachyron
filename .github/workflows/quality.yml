@@ -34,7 +34,7 @@ jobs:
       - run: uv run --locked --project apps/server pyright --project pyrightconfig.json
 
   backend-tests:
-    name: Backend Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Backend Tests (${{ matrix.os == 'ubuntu-latest' && 'Ubuntu' || 'Windows' }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
