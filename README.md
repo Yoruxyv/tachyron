@@ -11,9 +11,9 @@ not implemented.
 
 ## Requirements
 
-- Python 3.11+; CI targets 3.11 and 3.13 on Linux and Windows.
+- Standard CPython 3.11-3.14; CI covers each version on Linux and Windows.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.11.32.
-- Node.js 24.18.0 (`.node-version`) and npm 11.6.4.
+- Node.js 24.18.0 (`.node-version`) and npm 11.6.4 for the web application only.
 
 Dependencies are locked in `apps/server/uv.lock` and `apps/web/package-lock.json`.
 Use `uv sync --locked` and `npm ci`; updating locks is a deliberate maintenance task.
@@ -45,6 +45,9 @@ Stop either server with Ctrl+C.
 
 For an API-only environment, install `--extra api` instead of `--extra dev`.
 The base Python package depends on Pillow and psutil and runs without FastAPI.
+Its wheel and source distribution need no Node.js or frontend build artifacts.
+The Python metadata remains `>=3.11`; newer versions are not yet verified, and
+free-threaded builds are outside the supported compatibility matrix.
 
 See [jobs and history](docs/api.md) to register datasets, submit and cancel queued
 experiments, poll real metrics, and inspect persistent history and OpenAPI schemas.

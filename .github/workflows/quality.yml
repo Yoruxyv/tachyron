@@ -39,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ['3.11', '3.13']
+        python: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -54,10 +54,24 @@ jobs:
       - run: uv run --locked --project apps/server pytest apps/server/tests -q -m "not spawn"
       - name: Exercise real spawn workers, benchmarks, and failure cleanup
         run: uv run --locked --project apps/server pytest apps/server/tests -q -m spawn
-      - name: Import the base package without the API extra
-        run: >-
-          uv run --locked --isolated --project apps/server --no-default-groups python -I -c
-          "import importlib.util; import tachyron.cli; import tachyron.processing; import tachyron.workers; import tachyron.benchmark_cli; assert importlib.util.find_spec('fastapi') is None"
+      - name: Build and smoke wheel and sdist outside the repository
+        shell: bash
+        run: |
+          uv build --project apps/server --python '${{ matrix.python }}' --out-dir "$RUNNER_TEMP/dist"
+          uv export --locked --project apps/server --extra api --no-dev --no-emit-project --no-hashes --output-file "$RUNNER_TEMP/constraints.txt"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            python_path=Scripts/python.exe
+          else
+            python_path=bin/python
+          fi
+          for artifact in "$RUNNER_TEMP"/dist/*; do
+            environment="$RUNNER_TEMP/install-$(basename "$artifact")"
+            uv venv --python '${{ matrix.python }}' "$environment"
+            uv pip install --python "$environment/$python_path" --constraint "$RUNNER_TEMP/constraints.txt" "$artifact"
+            (cd "$RUNNER_TEMP" && "$environment/$python_path" -I "$GITHUB_WORKSPACE/apps/server/tests/installed_package_probe.py")
+            uv pip install --python "$environment/$python_path" --constraint "$RUNNER_TEMP/constraints.txt" "${artifact}[api]"
+            (cd "$RUNNER_TEMP" && "$environment/$python_path" -I "$GITHUB_WORKSPACE/apps/server/tests/installed_package_probe.py" --api)
+          done
 
   frontend-quality:
     runs-on: ubuntu-latest
