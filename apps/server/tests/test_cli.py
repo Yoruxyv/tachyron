@@ -143,7 +143,8 @@ def test_cli_output_failure_keeps_report_and_returns_status(
         image.save(dataset / "a.png")
     output = tmp_path / "run"
     with monkeypatch.context() as patch:
-        patch.setattr(cli.sys, "stdout", Mock(write=Mock(side_effect=failure)))
+        # Keep the stream interface used by Python 3.14 argparse color detection.
+        patch.setattr(cli.sys.stdout, "write", Mock(side_effect=failure))
         try:
             code = main(
                 [str(dataset), "--output", str(output), "--width", "1", "--height", "1"]

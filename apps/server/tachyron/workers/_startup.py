@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Hans Valerie
-"""Isolated CPython 3.11/3.13 recovery for an executor without a started manager.
+"""Isolated CPython 3.11-3.14 recovery for an executor without a started manager.
 
 Public executor shutdown drops its process registry without reaping children if
 the first submission fails before the manager starts. Only the two private state
@@ -36,7 +36,7 @@ def reap_unmanaged_children(pool: ProcessPoolExecutor) -> None:
     Call with SIGINT suppressed and before public shutdown discards the registry.
     A started manager retains full responsibility for graceful task shutdown.
     """
-    # These fields have the same ownership/lifecycle in CPython 3.11 and 3.13.
+    # Spawn startup fault probes cover these fields' ownership in CPython 3.11-3.14.
     state = cast("_ExecutorState", pool)
     manager = state._executor_manager_thread
     if manager is not None and manager.ident is not None:

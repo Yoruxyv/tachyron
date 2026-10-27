@@ -113,6 +113,32 @@ running in documentation jobs. GitHub and documentation domains are not excluded
 
 ## Workflows
 
+The backend test matrix covers regular CPython 3.11, 3.12, 3.13 and 3.14 on
+`ubuntu-latest` and `windows-latest`. Each of the eight jobs installs the locked
+dev extra, runs the complete backend suite in separate ordinary/spawn steps,
+and builds both wheel and source distribution. Lint and typing run once at the
+3.11 language baseline; they are not duplicated across all eight jobs.
+
+Each distribution is installed into its own temporary environment outside the
+checkout, with runtime versions constrained by an export of the unchanged lock.
+The [installed-package probe](../apps/server/tests/installed_package_probe.py)
+runs with isolated Python and no pytest/dev dependencies. It checks that imports
+come from that environment, optional API packages are absent, installed console
+entry points process images sequentially and through real spawn workers, and a
+labeled tiny benchmark executes 1/2/4/8-worker configurations. Recomputing its
+JSON/CSV exports must produce identical bytes. The same environment then installs
+that distribution's API extra and checks API imports, health and OpenAPI.
+The full backend suite separately covers statistics, SQLite migration/recovery,
+API jobs, cancellation, startup faults, cleanup and sanitized failures.
+
+This doubles backend test jobs from four to eight, with two additional tiny
+installed-package benchmark runs per job. It adds no quality job identifiers or
+dependencies; the existing aggregate gate requires every matrix job to succeed.
+Tiny workloads establish functionality, not comparative performance. Hosted
+results apply only once Actions executes; local container tests are Linux
+evidence, not a substitute for the hosted Ubuntu check. Free-threaded builds and
+Python versions beyond 3.14 are outside this matrix.
+
 The main workflow is [quality.yml](../.github/workflows/quality.yml). Its display
 name `CI` and original job identifiers remain stable after the filename rename;
 required check names therefore remain unchanged. Local documentation references
