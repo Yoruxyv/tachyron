@@ -15,11 +15,20 @@ from tachyron.benchmarking.models import (
     make_plan,
 )
 from tachyron.processing import (
+    BatchResult,
     DatasetManifest,
     ResourceLimits,
     TransformConfig,
     build_manifest,
+    run_sequential,
 )
+
+
+def sequential_pool(
+    manifest: DatasetManifest, directory: Path, transform: TransformConfig, workers: int
+) -> BatchResult:
+    """Exercise real image/core behavior cheaply; spawn tests use the actual pool."""
+    return run_sequential(manifest, directory, transform)
 
 
 def example_experiment(repetitions: int = 2) -> Experiment:

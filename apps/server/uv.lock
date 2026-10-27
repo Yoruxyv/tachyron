@@ -531,11 +531,13 @@ dependencies = [
 [package.optional-dependencies]
 api = [
     { name = "fastapi" },
+    { name = "pydantic" },
     { name = "uvicorn" },
 ]
 dev = [
     { name = "fastapi" },
     { name = "httpx2" },
+    { name = "pydantic" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -549,6 +551,7 @@ requires-dist = [
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.16,<3" },
     { name = "pillow", specifier = ">=13,<14" },
     { name = "psutil", specifier = ">=7,<8" },
+    { name = "pydantic", marker = "extra == 'api'", specifier = ">=2.10,<3" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.400,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<10" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16.3,<0.17" },

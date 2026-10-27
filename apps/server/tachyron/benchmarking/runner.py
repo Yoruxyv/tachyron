@@ -4,10 +4,12 @@
 import hashlib
 import logging
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
+from typing import cast
 from uuid import uuid4
 
 from tachyron.benchmarking.exports import (
@@ -103,6 +105,9 @@ def run_experiment(
     output_dir: Path,
     transform: TransformConfig,
     config: BenchmarkConfig = DEFAULT_CONFIG,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    on_record: Callable[[RunRecord], None] | None = None,
 ) -> Experiment:
     """Run one controlled pool-scaling experiment and retain raw evidence.
 
@@ -111,6 +116,8 @@ def run_experiment(
         output_dir: New experiment directory outside the dataset; parent must exist.
         transform: One identical transform for all warm-ups and repetitions.
         config: Seeded schedule and observation policy; five repetitions by default.
+        cancelled: Cooperative stop checked between fully drained pool batches.
+        on_record: Observe published records outside timing; observer errors propagate.
 
     Returns:
         Successful evidence, or explicitly failed evidence after an image failure.
@@ -154,7 +161,11 @@ def run_experiment(
             ),
         )
         records: list[RunRecord] = []
+        interrupted = False
         for step in plan:
+            if cancelled is not None and cancelled():
+                interrupted = True
+                break
             sampler = Sampler(config.sampling_interval)
             batch: BatchResult | None = None
             start: float | None = None
@@ -179,11 +190,15 @@ def run_experiment(
                     sampler.start()
                     record = replace(record, started_at=_stamp())
                     start = perf_counter()
-                    batch = run_parallel(
-                        manifest,
-                        directory / "batches" / step.run_id,
-                        transform,
-                        step.workers,
+                    # Preserve the runtime guard if a pool violates its return contract.
+                    batch = cast(
+                        "BatchResult | None",
+                        run_parallel(
+                            manifest,
+                            directory / "batches" / step.run_id,
+                            transform,
+                            step.workers,
+                        ),
                     )
                 finally:
                     stop = perf_counter() if start is not None else 0.0
@@ -235,17 +250,22 @@ def run_experiment(
             )
             records.append(record)
             _save_record(directory, record)
+            if on_record is not None:
+                on_record(record)
             if batch.failed:
                 break
+        status = "failed"
+        if interrupted:
+            status = "interrupted"
+        elif len(records) == len(plan) and records[-1].status == "success":
+            status = "success"
         experiment = Experiment(
             identifier,
             context,
             config,
             plan,
             tuple(records),
-            "success"
-            if len(records) == len(plan) and records[-1].status == "success"
-            else "failed",
+            status,
         )
         publish_exports(experiment, directory)
         return experiment

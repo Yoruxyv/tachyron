@@ -5,8 +5,9 @@ Reproducible parallel image-processing benchmarks on a single machine.
 The Python package provides deterministic sequential and spawn-process batch
 image processing through a minimal CLI. The web application remains an accessible
 shell with a FastAPI liveness check. The benchmark CLI measures real pool scaling
-and exports raw runs, sampled CPU/RSS, and comparison statistics. History and
-dashboard charts are not implemented.
+and exports raw runs, sampled CPU/RSS, and comparison statistics. The API accepts
+bounded background experiments and retains SQLite history; dashboard charts are
+not implemented.
 
 ## Requirements
 
@@ -43,7 +44,10 @@ Requests time out after five seconds; failures show a safe message and allow ret
 Stop either server with Ctrl+C.
 
 For an API-only environment, install `--extra api` instead of `--extra dev`.
-The base Python package depends only on Pillow and runs without FastAPI.
+The base Python package depends on Pillow and psutil and runs without FastAPI.
+
+See [jobs and history](docs/api.md) to register datasets, submit and cancel queued
+experiments, poll real metrics, and inspect persistent history and OpenAPI schemas.
 
 ## Process images
 
