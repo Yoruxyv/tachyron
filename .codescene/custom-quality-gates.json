@@ -14,7 +14,15 @@
     },
     {
       "matching_content_path": "**/*",
-      "quality_gates": "clean_code_collective"
+      "quality_gates": {
+        "hotspot_decline": true,
+        "critical_health_rules": true,
+        "advisory_health_rules": false,
+        "new_code_health": false,
+        "refactoring_goals": true,
+        "supervise_goals": false,
+        "codeowners_for_critical_code": true
+      }
     }
   ]
 }
