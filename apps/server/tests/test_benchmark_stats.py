@@ -257,3 +257,91 @@ def test_resource_availability_counts_cpu_and_memory_independently() -> None:
     assert all(
         row.cpu_runs_available == row.memory_runs_available == 1 for row in result
     )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"succeeded": 9}, "Run counts do not account for the fixed workload"),
+        (
+            {"succeeded": 9, "failed": 1},
+            "A successful run must have complete counts and valid timing",
+        ),
+        (
+            {"succeeded": None, "failed": None},
+            "A successful run must have complete counts and valid timing",
+        ),
+        (
+            {"elapsed_seconds": None},
+            "A successful run must have complete counts and valid timing",
+        ),
+        (
+            {"elapsed_seconds": 0},
+            "A successful run must have complete counts and valid timing",
+        ),
+        (
+            {"elapsed_seconds": 1e-320},
+            "A successful run must have complete counts and valid timing",
+        ),
+        (
+            {"context_id": "d" * 64, "succeeded": 9},
+            "Mixed context, duplicate, missing or reordered run records",
+        ),
+    ],
+)
+def test_workload_validation_preserves_error_precedence(
+    changes: dict[str, object], message: str
+) -> None:
+    original = example_experiment()
+    record = replace(original.records[0], **changes)
+    experiment = replace(original, records=(record,), status="failed")
+    with pytest.raises(BenchmarkError) as caught:
+        summarize(experiment, require_complete=False)
+    assert str(caught.value) == message
+
+
+@pytest.mark.parametrize("elapsed", [None, 0.5, 1.0, 2.0])
+def test_incomplete_attempts_validate_cpu_coverage_even_without_counts(
+    elapsed: float | None,
+) -> None:
+    original = example_experiment()
+    record = replace(
+        original.records[0],
+        status="interrupted",
+        error_code="execution_failure",
+        elapsed_seconds=elapsed,
+        succeeded=None,
+        failed=None,
+        telemetry=Telemetry(
+            observations=2,
+            cpu_samples=1,
+            cpu_observed_seconds=1,
+            cpu_mean_core_percent=0,
+            cpu_peak_core_percent=0,
+        ),
+    )
+    experiment = replace(original, records=(record,), status="interrupted")
+    if elapsed is None or elapsed < 1:
+        with pytest.raises(BenchmarkError, match="Observed CPU intervals exceed"):
+            summarize(experiment, require_complete=False)
+    else:
+        assert summarize(experiment, require_complete=False) == tuple(
+            WorkerSummary(workers, 0, False) for workers in (1, 2, 4, 8)
+        )
+
+
+@pytest.mark.parametrize("baseline", [1e-100, 10.0, 1e100])
+def test_scaling_preserves_small_large_and_slower_worker_comparisons(
+    baseline: float,
+) -> None:
+    original = example_experiment(1)
+    experiment = replace(
+        original,
+        records=tuple(
+            replace(record, elapsed_seconds=baseline * record.step.workers)
+            for record in original.records
+        ),
+    )
+    rows = summarize(experiment)
+    assert [row.speedup for row in rows] == [1, 0.5, 0.25, 0.125]
+    assert [row.efficiency_percent for row in rows] == [100, 25, 6.25, 1.5625]

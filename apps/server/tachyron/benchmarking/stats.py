@@ -79,20 +79,18 @@ class WorkerSummary:
     memory_runs_available: int = 0
 
 
-def _validate_record(record: RunRecord, step: Step, context: Context) -> None:
-    """Check one scheduled attempt's identity, image accounting and CPU coverage."""
-    if record.step != step or record.context_id != context.digest:
-        raise BenchmarkError(
-            "Mixed context, duplicate, missing or reordered run records"
-        )
+def _validate_image_accounting(record: RunRecord, input_count: int) -> None:
+    """Check known workload totals and reject incomplete successful results."""
     if (
         record.succeeded is not None
         and record.failed is not None
-        and record.succeeded + record.failed != context.input_count
+        and record.succeeded + record.failed != input_count
     ):
         raise BenchmarkError("Run counts do not account for the fixed workload")
-    if record.status == "success" and (
-        record.succeeded != context.input_count
+    if record.status != "success":
+        return
+    if (
+        record.succeeded != input_count
         or record.failed != 0
         or record.succeeded is None
         or throughput(record.succeeded, record.elapsed_seconds) is None
@@ -100,6 +98,15 @@ def _validate_record(record: RunRecord, step: Step, context: Context) -> None:
         raise BenchmarkError(
             "A successful run must have complete counts and valid timing"
         )
+
+
+def _validate_record(record: RunRecord, step: Step, context: Context) -> None:
+    """Check one scheduled attempt's identity, workload result and CPU coverage."""
+    if record.step != step or record.context_id != context.digest:
+        raise BenchmarkError(
+            "Mixed context, duplicate, missing or reordered run records"
+        )
+    _validate_image_accounting(record, context.input_count)
     if record.telemetry.cpu_observed_seconds > 0 and (
         record.elapsed_seconds is None
         or record.telemetry.cpu_observed_seconds > record.elapsed_seconds
@@ -186,10 +193,24 @@ def _summarize_worker(workers: int, records: tuple[RunRecord, ...]) -> WorkerSum
     )
 
 
+def _compare_to_baseline(
+    summary: WorkerSummary, baseline: float | None
+) -> WorkerSummary:
+    """Attach finite ratio-of-means scaling values without rounding intermediates."""
+    duration = summary.elapsed.mean if summary.elapsed is not None else None
+    if baseline is None or duration is None or duration <= 0:
+        raise BenchmarkError("Baseline and selected durations must be positive")
+    speedup = baseline / duration
+    efficiency = speedup / summary.workers * 100
+    if not math.isfinite(speedup) or not math.isfinite(efficiency):
+        raise BenchmarkError("Speedup exceeds representable values")
+    return replace(summary, speedup=speedup, efficiency_percent=efficiency)
+
+
 def _complete_summaries(
     records: tuple[RunRecord, ...],
 ) -> tuple[WorkerSummary, ...]:
-    """Compare validated complete evidence against its one-worker pool mean."""
+    """Aggregate complete evidence before comparing against the one-worker pool."""
     summaries = tuple(
         _summarize_worker(
             workers,
@@ -202,17 +223,7 @@ def _complete_summaries(
         for workers in WORKERS
     )
     baseline = summaries[0].elapsed.mean if summaries[0].elapsed is not None else None
-    results: list[WorkerSummary] = []
-    for summary in summaries:
-        duration = summary.elapsed.mean if summary.elapsed is not None else None
-        if baseline is None or duration is None or duration <= 0:
-            raise BenchmarkError("Baseline and selected durations must be positive")
-        speedup = baseline / duration
-        efficiency = speedup / summary.workers * 100
-        if not math.isfinite(speedup) or not math.isfinite(efficiency):
-            raise BenchmarkError("Speedup exceeds representable values")
-        results.append(replace(summary, speedup=speedup, efficiency_percent=efficiency))
-    return tuple(results)
+    return tuple(_compare_to_baseline(summary, baseline) for summary in summaries)
 
 
 def summarize(

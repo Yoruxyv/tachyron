@@ -106,6 +106,13 @@ class Environment:
             raise BenchmarkError("Runtime provenance must contain nonempty strings")
         if not digest(self.host_id) or not digest(self.source_hash):
             raise BenchmarkError("Invalid host or loaded-source identity")
+        self._validate_resources()
+        self._validate_git_state()
+        if self.cpu_model is not None and not isinstance(self.cpu_model, str):
+            raise BenchmarkError("Invalid CPU description")
+
+    def _validate_resources(self) -> None:
+        """Validate optional capacity observations without inferring missing values."""
         if any(
             value is not None and not integer(value, 1)
             for value in (self.logical_cpus, self.physical_cpus)
@@ -120,14 +127,15 @@ class Environment:
             not integer(cpu) for cpu in self.cpu_affinity
         ):
             raise BenchmarkError("Invalid CPU affinity")
+
+    def _validate_git_state(self) -> None:
+        """Validate the optional commit identity and working-tree state together."""
         if self.git_commit is not None and not digest(self.git_commit, 40):
             raise BenchmarkError("Invalid Git commit identity")
         if self.git_dirty is not None and not isinstance(self.git_dirty, bool):
             raise BenchmarkError(
                 "Git working-tree state must be boolean or unavailable"
             )
-        if self.cpu_model is not None and not isinstance(self.cpu_model, str):
-            raise BenchmarkError("Invalid CPU description")
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +333,11 @@ class RunRecord:
         for stamp in (self.started_at, self.ended_at):
             if datetime.fromisoformat(stamp).utcoffset() is None:
                 raise BenchmarkError("Run timestamps must carry a timezone")
+        self._validate_measurements()
+        self._validate_outcome()
+
+    def _validate_measurements(self) -> None:
+        """Validate duration and paired image counts, allowing unknown evidence."""
         if self.elapsed_seconds is not None and not finite(self.elapsed_seconds):
             raise BenchmarkError("Invalid elapsed duration")
         if (self.succeeded is None) != (self.failed is None) or any(
@@ -332,6 +345,9 @@ class RunRecord:
             for value in (self.succeeded, self.failed)
         ):
             raise BenchmarkError("Invalid image accounting")
+
+    def _validate_outcome(self) -> None:
+        """Validate status/failure consistency and reject unsupported worker claims."""
         if self.status not in ("success", "failed", "interrupted"):
             raise BenchmarkError("Invalid run status")
         if self.error_code not in (
