@@ -124,8 +124,10 @@ setup, execution, and assertions can form one readable test. Thresholds and all
 other rules, including file length and cohesion, retain their defaults. Production
 code receives no overrides. Test suites should still be organized by responsibility.
 
-The [repository-managed PR gate policy](.codescene/custom-quality-gates.json) retains
-critical-rule, hotspot-decline, and critical-code reviewer safeguards. It requires
+The [repository-managed PR gate policy](.codescene/custom-quality-gates.json) disables
+CodeScene PR gates only for backend tests and applies Clean Code Collective to all
+other content, including its new-code and advisory gates. Analysis and the required
+GitHub quality checks remain active for tests. The policy requires
 CodeScene project activation; see the [CodeScene policy](docs/quality.md#codescene-policy)
 for gate settings, exceptions, and verification.
 

@@ -158,26 +158,28 @@ Code Health scoring and PR failure conditions have separate configuration files:
   findings fail CodeScene's PR check. It does not change scores, suppress findings,
   or exclude production Python, frontend code, tests, or tooling from analysis.
 
-One repository-relative `**/*` rule covers all content. CodeScene applies the
-first matching rule; unmatched content has no gates. Keep this catch-all when
-adding any narrower rules so future directories do not silently lose safeguards.
+CodeScene applies the first matching rule. The repository policy explicitly
+disables all seven PR gates for `apps/server/tests/**`; the subsequent `**/*`
+rule selects the built-in `clean_code_collective` profile for all other content.
+Keep this catch-all so future directories do not silently lose safeguards.
 
-| Gate                           | Enabled | Rationale                                              |
-| ------------------------------ | ------- | ------------------------------------------------------ |
-| `hotspot_decline`              | Yes     | Prevent health decline in frequently changed code.     |
-| `critical_health_rules`        | Yes     | Enforce critical findings, including Bumpy Road Ahead. |
-| `codeowners_for_critical_code` | Yes     | Retain reviewer tagging for critical code.             |
-| `new_code_health`              | No      | Avoid requiring a perfect score on every new file.     |
-| `advisory_health_rules`        | No      | Review advisory findings without automatic PR failure. |
-| `refactoring_goals`            | No      | Preserve the existing profile's goal-gate setting.     |
-| `supervise_goals`              | No      | Preserve the existing profile's goal-gate setting.     |
+| Gate                           | Backend tests | All other content |
+| ------------------------------ | ------------- | ----------------- |
+| `hotspot_decline`              | No            | Yes               |
+| `critical_health_rules`        | No            | Yes               |
+| `codeowners_for_critical_code` | No            | Yes               |
+| `new_code_health`              | No            | Yes               |
+| `advisory_health_rules`        | No            | Yes               |
+| `refactoring_goals`            | No            | No                |
+| `supervise_goals`              | No            | No                |
 
-Compared with Clean Code Collective, only `new_code_health` and
-`advisory_health_rules` change. The critical-code reviewer gate remains enabled;
-the optional goal gates are not newly activated. Assigned goals and future policy
-changes should be reviewed explicitly. Advisory findings and scores remain useful
-review evidence even when they do not fail the PR. Noncritical degradation outside
-hotspots therefore depends on human review rather than these mandatory gates.
+The backend-test exception affects failure conditions, not analysis or scoring.
+Test findings still need review, including critical findings; pytest, lint,
+typing, and GitHub's required `Quality gate` remain enforced. Frontend tests and
+repository tooling receive the catch-all profile. Production has no exceptions:
+Clean Code Collective requires a perfect Code Health score for new code and
+enforces advisory findings as well as critical rules and hotspot decline. Fixing
+critical findings alone therefore does not guarantee a green CodeScene check.
 
 ### Activation and verification
 
@@ -203,8 +205,8 @@ that provider evaluation succeeds.
 
 An accepted finding requires an explicit review decision and owner approval for a
 CodeScene exception. Record the PR, rule, function, reviewed commit, and rationale.
-Use the PR-results exception control for the specific finding; keep critical-rule
-enforcement enabled globally. A resolved GitHub conversation is not an exception.
+Use the PR-results exception control for the specific finding; keep production
+critical-rule enforcement enabled. A resolved GitHub conversation is not an exception.
 
 CodeScene's documented suppression affects that PR and later checks of the same
 PR. Re-review it if the affected function changes before merge; automatic expiry
