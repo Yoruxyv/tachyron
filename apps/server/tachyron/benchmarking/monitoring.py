@@ -33,6 +33,28 @@ class Snapshot:
     complete: bool
 
 
+def _cpu_interval(previous: Snapshot, sample: Snapshot) -> tuple[float, float] | None:
+    """Return core percent and seconds only for stable identities and valid counters."""
+    old = {
+        (process.pid, process.created): process.cpu_seconds
+        for process in previous.processes
+    }
+    current = {
+        (process.pid, process.created): process.cpu_seconds
+        for process in sample.processes
+    }
+    duration = sample.at - previous.at
+    deltas = tuple(value - old[key] for key, value in current.items() if key in old)
+    if not (
+        old.keys() == current.keys()
+        and duration > 0
+        and all(value >= 0 and math.isfinite(value) for value in deltas)
+    ):
+        return None
+    percent = sum(deltas) / duration * 100
+    return (percent, duration) if math.isfinite(percent) else None
+
+
 def summarize_samples(
     snapshots: tuple[Snapshot, ...],
     start: float,
@@ -60,30 +82,11 @@ def summarize_samples(
         memory.append(sum(process.rss_bytes for process in sample.processes) / 1024**2)
         descendants.append(len(sample.processes) - 1)
         if previous is not None:
-            old = {
-                (process.pid, process.created): process.cpu_seconds
-                for process in previous.processes
-            }
-            current = {
-                (process.pid, process.created): process.cpu_seconds
-                for process in sample.processes
-            }
-            duration = sample.at - previous.at
-            deltas = tuple(
-                value - old[key] for key, value in current.items() if key in old
-            )
-            if (
-                old.keys() == current.keys()
-                and duration > 0
-                and all(value >= 0 and math.isfinite(value) for value in deltas)
-            ):
-                percent = sum(deltas) / duration * 100
-                if math.isfinite(percent):
-                    cpu.append((percent, duration))
-                else:
-                    missed += 1
-            else:
+            interval = _cpu_interval(previous, sample)
+            if interval is None:
                 missed += 1
+            else:
+                cpu.append(interval)
         previous = sample
     observed_seconds = sum(duration for _, duration in cpu)
     return Telemetry(

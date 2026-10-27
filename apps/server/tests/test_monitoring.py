@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Hans Valerie
 """Counter priming, tree churn, missing data and bounded sampler lifecycle."""
 
+import math
 from unittest.mock import Mock
 
 import pytest
@@ -32,6 +33,39 @@ def test_cpu_core_equivalents_exceed_100_and_rss_is_tree_mib() -> None:
     assert result.rss_peak_mib == pytest.approx(5)
     assert result.cpu_samples == 2
     assert result.memory_samples == 3
+
+
+def test_irregular_cpu_intervals_weight_observed_zero_and_active_time() -> None:
+    observations = (
+        snapshot(0, 10, child=False),
+        snapshot(1, 10, child=False),
+        snapshot(3, 12, child=False),
+    )
+    idle = summarize_samples(observations[:2], 0, 1)
+    assert idle.cpu_mean_core_percent == 0
+    assert idle.cpu_samples == 1
+    result = summarize_samples(observations, 0, 3)
+    assert result.cpu_mean_core_percent == pytest.approx(200 / 3)
+    assert result.cpu_peak_core_percent == 100
+    assert result.cpu_observed_seconds == 3
+    assert result.cpu_samples == 2
+
+
+@pytest.mark.parametrize(
+    ("at", "cpu"),
+    [(0, 1), (-1, 1), (1, -1), (1, math.nan), (1, math.inf), (1e-308, 1e308)],
+)
+def test_invalid_cpu_intervals_preserve_readable_memory(at: float, cpu: float) -> None:
+    result = summarize_samples(
+        (snapshot(0, 0, child=False), snapshot(at, cpu, child=False)), -1, 2
+    )
+    assert result.cpu_mean_core_percent is None
+    assert result.cpu_peak_core_percent is None
+    assert result.cpu_observed_seconds == 0
+    assert result.cpu_samples == 0
+    assert result.missed_observations == 1
+    assert result.memory_samples == 2
+    assert result.rss_peak_mib == 2
 
 
 def test_birth_exit_and_unreadable_intervals_do_not_fabricate_zero_cpu() -> None:
