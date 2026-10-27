@@ -160,7 +160,7 @@ Code Health scoring and PR failure conditions have separate configuration files:
 
 CodeScene applies the first matching rule. The repository policy explicitly
 disables all seven PR gates for `apps/server/tests/**`; the subsequent `**/*`
-rule selects the built-in `clean_code_collective` profile for all other content.
+rule specifies individual gates for all other content.
 Keep this catch-all so future directories do not silently lose safeguards.
 
 | Gate                           | Backend tests | All other content |
@@ -168,18 +168,20 @@ Keep this catch-all so future directories do not silently lose safeguards.
 | `hotspot_decline`              | No            | Yes               |
 | `critical_health_rules`        | No            | Yes               |
 | `codeowners_for_critical_code` | No            | Yes               |
-| `new_code_health`              | No            | Yes               |
-| `advisory_health_rules`        | No            | Yes               |
-| `refactoring_goals`            | No            | No                |
+| `new_code_health`              | No            | No                |
+| `advisory_health_rules`        | No            | No                |
+| `refactoring_goals`            | No            | Yes               |
 | `supervise_goals`              | No            | No                |
 
 The backend-test exception affects failure conditions, not analysis or scoring.
 Test findings still need review, including critical findings; pytest, lint,
 typing, and GitHub's required `Quality gate` remain enforced. Frontend tests and
-repository tooling receive the catch-all profile. Production has no exceptions:
-Clean Code Collective requires a perfect Code Health score for new code and
-enforces advisory findings as well as critical rules and hotspot decline. Fixing
-critical findings alone therefore does not guarantee a green CodeScene check.
+repository tooling receive the catch-all gate settings. For production,
+critical rules, hotspot decline, critical-code reviewer tagging, and explicitly
+assigned refactoring goals remain enforced. Perfect new-file scores and advisory
+findings do not automatically fail the PR. Advisory findings still require review;
+the goal gate applies to assigned refactoring goals, not every advisory suggestion.
+This configuration changes failure conditions, not production scoring or analysis.
 
 ### Activation and verification
 
