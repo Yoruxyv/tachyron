@@ -118,6 +118,12 @@ and other Python tooling. Pyright also scans the repository, including tests and
 future scripts, with the configured error-level diagnostics. ESLint checks source,
 tests, and configuration with type-aware rules. Warnings fail the lint gate.
 
+The [CodeScene configuration](.codescene/code-health-rules.json) keeps `Large Method`
+active at half its default weight only in `apps/server/tests/**`, where explicit
+setup, execution, and assertions can form one readable test. Thresholds and all
+other rules, including file length and cohesion, retain their defaults. Production
+code receives no overrides. Test suites should still be organized by responsibility.
+
 [CI](.github/workflows/quality.yml) runs genuine Python lint/format/type/tests and frontend
 lint/type/tests/build checks on pull requests and pushes to `main`. Action revisions
 and tool versions are pinned. The backend test matrix includes Linux and Windows.
