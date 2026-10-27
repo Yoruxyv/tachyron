@@ -9,10 +9,12 @@ description = "Single-host parallel image-processing benchmarks."
 requires-python = ">=3.11"
 dependencies = [
     "pillow>=13,<14",
+    "psutil>=7,<8",
 ]
 
 [project.scripts]
 tachyron-process = "tachyron.cli:main"
+tachyron-benchmark = "tachyron.benchmark_cli:main"
 
 [project.optional-dependencies]
 api = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1"]
@@ -22,6 +24,7 @@ dev = [
     "pytest>=8,<10",
     "ruff>=0.16.3,<0.17",
     "httpx2>=2.16,<3",
+    "types-psutil>=7,<8",
 ]
 
 [tool.uv.build-backend]

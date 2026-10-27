@@ -1,0 +1,28 @@
+{
+  "rule_sets": [
+    {
+      "matching_content_path": "apps/server/tests/**",
+      "quality_gates": {
+        "hotspot_decline": false,
+        "critical_health_rules": false,
+        "advisory_health_rules": false,
+        "new_code_health": false,
+        "refactoring_goals": false,
+        "supervise_goals": false,
+        "codeowners_for_critical_code": false
+      }
+    },
+    {
+      "matching_content_path": "**/*",
+      "quality_gates": {
+        "hotspot_decline": true,
+        "critical_health_rules": true,
+        "advisory_health_rules": false,
+        "new_code_health": false,
+        "refactoring_goals": true,
+        "supervise_goals": false,
+        "codeowners_for_critical_code": true
+      }
+    }
+  ]
+}

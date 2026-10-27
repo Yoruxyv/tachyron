@@ -4,8 +4,9 @@ Reproducible parallel image-processing benchmarks on a single machine.
 
 The Python package provides deterministic sequential and spawn-process batch
 image processing through a minimal CLI. The web application remains an accessible
-shell with a FastAPI liveness check. Benchmark measurements, history, and charts
-are not implemented yet. No benchmark results exist yet.
+shell with a FastAPI liveness check. The benchmark CLI measures real pool scaling
+and exports raw runs, sampled CPU/RSS, and comparison statistics. History and
+dashboard charts are not implemented.
 
 ## Requirements
 
@@ -73,6 +74,24 @@ explicit experimental inputs; selecting more than reported logical CPUs warns.
 See [sequential processing](docs/processing.md) for a generated tiny dataset,
 the exact image contract, safety limits, and Python usage.
 
+## Reproducible benchmarks
+
+Use the generated dataset and existing `results/` parent from the processing
+example. A fresh experiment directory is required:
+
+```powershell
+uv run --locked --project apps/server tachyron-benchmark run datasets/example --output results/benchmark --width 4 --height 3
+uv run --locked --project apps/server tachyron-benchmark compare results/benchmark/runs.json --output results/recomputed
+```
+
+The primary comparison uses 1/2/4/8 spawn workers, one warm-up and five measured
+repetitions per configuration, seeded interleaved order, and consistent batch
+timing including pool startup/shutdown and image I/O. JSON/CSV preserve raw runs
+and summaries. Failed experiments never become complete scaling comparisons.
+Use `--tiny` explicitly for a labeled one-repetition test; a tiny workload is not
+representative performance evidence. See [benchmark methodology](docs/benchmarking.md)
+for timing, baseline, CPU/RSS semantics, provenance, storage and cancellation limits.
+
 ## Quality checks
 
 Run these from the repository root:
@@ -99,6 +118,19 @@ and other Python tooling. Pyright also scans the repository, including tests and
 future scripts, with the configured error-level diagnostics. ESLint checks source,
 tests, and configuration with type-aware rules. Warnings fail the lint gate.
 
+The [CodeScene configuration](.codescene/code-health-rules.json) keeps `Large Method`
+active at half its default weight only in `apps/server/tests/**`, where explicit
+setup, execution, and assertions can form one readable test. Thresholds and all
+other rules, including file length and cohesion, retain their defaults. Production
+code receives no overrides. Test suites should still be organized by responsibility.
+
+The [repository-managed PR gate policy](.codescene/custom-quality-gates.json) disables
+CodeScene PR gates only for backend tests and applies Clean Code Collective to all
+other content, including its new-code and advisory gates. Analysis and the required
+GitHub quality checks remain active for tests. The policy requires
+CodeScene project activation; see the [CodeScene policy](docs/quality.md#codescene-policy)
+for gate settings, exceptions, and verification.
+
 [CI](.github/workflows/quality.yml) runs genuine Python lint/format/type/tests and frontend
 lint/type/tests/build checks on pull requests and pushes to `main`. Action revisions
 and tool versions are pinned. The backend test matrix includes Linux and Windows.
@@ -116,6 +148,8 @@ the backend on the same origin; Vite's development proxy is not a production ser
 - `apps/server/tachyron/processing/`: manifest, image semantics, and sequential execution.
 - `apps/server/tachyron/cli.py`: processing arguments, JSON reporting, and exit codes.
 - `apps/server/tachyron/workers/`: bounded process-pool ownership and ordered aggregation.
+- `apps/server/tachyron/benchmarking/`: schedule, observation, evidence and pure statistics.
+- `apps/server/tachyron/benchmark_cli.py`: independent benchmark run/compare commands.
 - `apps/web/src/api/`: browser HTTP contract validation and cancellation.
 - `apps/web/src/App.tsx`: minimal application shell; no benchmark state or calculations.
 - Root quality configuration and `.github/workflows/`: repository-wide gates.

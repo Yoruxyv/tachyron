@@ -1,0 +1,14 @@
+{
+  "rule_sets": [
+    {
+      "matching_content_path": "apps/server/tests/**",
+      "rules": [
+        {
+          "name": "Large Method",
+          "weight": 0.5
+        }
+      ],
+      "thresholds": []
+    }
+  ]
+}
