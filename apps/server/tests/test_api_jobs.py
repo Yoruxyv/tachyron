@@ -2,6 +2,7 @@
 """API lifecycle, queue pressure and failures over real tiny image processing."""
 
 import json
+import multiprocessing
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -263,7 +264,9 @@ def test_missing_jobs_and_bounded_query_validation(
 
 @pytest.mark.spawn
 def test_api_real_spawn_comparison_and_pool_cleanup(settings: Settings) -> None:
-    before = {child.pid for child in psutil.Process().children(recursive=True)}
+    # Start POSIX's interpreter-owned resource tracker before measuring pool cleanup.
+    with multiprocessing.get_context("spawn").Lock():
+        before = {child.pid for child in psutil.Process().children(recursive=True)}
     with TestClient(create_app(settings)) as client:
         response = client.post("/api/jobs", json=BODY)
         assert response.status_code == 202
