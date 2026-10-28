@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 
-import type { useApiHealth } from './useApiHealth';
+import type { useApiHealth } from './hooks/useApiHealth';
 
 const startCommand =
   'uv run --locked --project apps/server uvicorn tachyron.api:app --host 127.0.0.1 --port 8000';

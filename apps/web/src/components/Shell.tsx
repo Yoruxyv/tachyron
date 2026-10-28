@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { Dataset } from '@/api/contracts';
-import DatasetSelect from '@/features/benchmarks/DatasetSelect';
+import DatasetSelect from '@/features/datasets/components/DatasetSelect';
 
 import Icon from './Icon';
 import Select from './Select';

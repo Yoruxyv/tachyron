@@ -22,6 +22,8 @@ apps/web/visual-parity-evidence/
 *.key
 datasets/
 results/
+!apps/web/src/features/datasets/
+!apps/web/src/features/benchmarks/results/
 .DS_Store
 Thumbs.db
 .lycheecache

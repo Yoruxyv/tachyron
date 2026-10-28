@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import ConnectionTroubleshooting from './ConnectionTroubleshooting';
-import type { useApiHealth } from './useApiHealth';
+import type { useApiHealth } from './hooks/useApiHealth';
 
 export default function WorkspaceStatus({
   health,

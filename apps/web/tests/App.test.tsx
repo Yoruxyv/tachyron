@@ -5,15 +5,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '@/App';
 import * as api from '@/api/benchmarks';
 import * as healthApi from '@/api/health';
-import JobForm from '@/features/benchmarks/JobForm';
-import JobProgress from '@/features/benchmarks/JobProgress';
-import Results from '@/features/benchmarks/Results';
-import ApiStatus from '@/features/benchmarks/ApiStatus';
-import { useApiHealth } from '@/features/benchmarks/useApiHealth';
+import JobForm from '@/features/benchmarks/experiments/JobForm';
+import JobProgress from '@/features/benchmarks/experiments/JobProgress';
+import Results from '@/features/benchmarks/results/Results';
+import ApiStatus from '@/features/diagnostics/ApiStatus';
+import { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
 import { dataset, detail, job, request } from './fixtures';
 
-vi.mock('@/features/benchmarks/Charts', () => ({
+vi.mock('@/features/benchmarks/results/Charts', () => ({
   default: () => <p>Charts loaded</p>,
 }));
 

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { type HistoryItem, type WorkerCount } from '@/api/contracts';
 import Select from '@/components/Select';
 
-import { timestamp } from './format';
+import { timestamp } from '@/lib/format';
 import RecentExperiments from './RecentExperiments';
 
 interface Props {

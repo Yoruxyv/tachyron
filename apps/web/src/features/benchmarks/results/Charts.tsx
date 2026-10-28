@@ -19,7 +19,7 @@ import { workers, type WorkerCount, type WorkerSummary } from '@/api/contracts';
 
 import { chartDefinitions, chartValues, type ChartMetric } from './chartData';
 import ChartPanel from './ChartPanel';
-import { metric } from './format';
+import { metric } from '@/lib/format';
 
 Chart.register(
   BarController,

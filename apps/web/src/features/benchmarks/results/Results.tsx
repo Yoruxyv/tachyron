@@ -6,7 +6,7 @@ import ChartBoundary from '@/components/ChartBoundary';
 
 import { chartDefinitions } from './chartData';
 import ChartPanel from './ChartPanel';
-import { metric, timestamp } from './format';
+import { metric, timestamp } from '@/lib/format';
 import WorkerSelector from './WorkerSelector';
 
 const Charts = lazy(() => import('./Charts'));

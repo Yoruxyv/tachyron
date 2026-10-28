@@ -1,9 +1,9 @@
 import Shell from '@/components/Shell';
-import BenchmarkNotices from '@/features/benchmarks/BenchmarkNotices';
-import BenchmarkWorkspace from '@/features/benchmarks/BenchmarkWorkspace';
-import WorkspaceStatus from '@/features/benchmarks/WorkspaceStatus';
-import ApiNotifications from '@/features/benchmarks/ApiNotifications';
-import { useWorkspace } from '@/features/benchmarks/useWorkspace';
+import BenchmarkNotices from '@/app/BenchmarkNotices';
+import BenchmarkWorkspace from '@/app/BenchmarkWorkspace';
+import WorkspaceStatus from '@/features/diagnostics/WorkspaceStatus';
+import ApiNotifications from '@/features/diagnostics/ApiNotifications';
+import { useWorkspace } from '@/app/useWorkspace';
 
 export default function App() {
   const {

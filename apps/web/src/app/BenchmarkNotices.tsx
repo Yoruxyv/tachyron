@@ -1,7 +1,7 @@
 import type { View } from '@/components/useNavigation';
 
-import type { useCatalog } from './useHistory';
-import type { useJob } from './useJob';
+import type { useCatalog } from '@/features/datasets/hooks/useCatalog';
+import type { useJob } from '@/features/benchmarks/hooks/useJob';
 
 interface Props {
   readonly catalog: ReturnType<typeof useCatalog>;

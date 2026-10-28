@@ -1,6 +1,6 @@
 import type { HistoryItem, WorkerCount } from '@/api/contracts';
 
-import { metric } from './format';
+import { metric } from '@/lib/format';
 
 export default function RecentExperiments({
   items,

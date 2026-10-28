@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { expect, it, vi } from 'vitest';
 
-import ApiNotifications from '@/features/benchmarks/ApiNotifications';
+import ApiNotifications from '@/features/diagnostics/ApiNotifications';
 
 import { job, request } from './fixtures';
 

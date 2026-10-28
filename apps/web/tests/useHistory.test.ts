@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import * as api from '@/api/benchmarks';
 import type { HistoryDetail } from '@/api/contracts';
-import { useHistory } from '@/features/benchmarks/useHistory';
+import { useHistory } from '@/features/history/hooks/useHistory';
 
 import { detail, job } from './fixtures';
 

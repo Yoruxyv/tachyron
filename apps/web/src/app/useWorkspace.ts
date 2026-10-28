@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
 import { useNavigation } from '@/components/useNavigation';
-import { useCatalog, useHistory } from './useHistory';
-import { useJob } from './useJob';
-import { useApiHealth } from './useApiHealth';
+import { useCatalog } from '@/features/datasets/hooks/useCatalog';
+import { useHistory } from '@/features/history/hooks/useHistory';
+import { useJob } from '@/features/benchmarks/hooks/useJob';
+import { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
 type Execution = ReturnType<typeof useJob>;
 

@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as api from '@/api/benchmarks';
-import { useJob } from '@/features/benchmarks/useJob';
+import { useJob } from '@/features/benchmarks/hooks/useJob';
 
 import { job, request } from './fixtures';
 

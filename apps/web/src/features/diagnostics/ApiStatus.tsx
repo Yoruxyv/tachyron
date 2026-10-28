@@ -1,4 +1,4 @@
-import type { useApiHealth } from './useApiHealth';
+import type { useApiHealth } from './hooks/useApiHealth';
 
 export default function ApiStatus({
   health,

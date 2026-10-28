@@ -7,8 +7,8 @@ import {
 } from '@/api/contracts';
 import Select from '@/components/Select';
 
-import DatasetSelect from './DatasetSelect';
-import WorkerSelector from './WorkerSelector';
+import DatasetSelect from '@/features/datasets/components/DatasetSelect';
+import WorkerSelector from '../results/WorkerSelector';
 
 interface Props {
   readonly datasets: Dataset[];

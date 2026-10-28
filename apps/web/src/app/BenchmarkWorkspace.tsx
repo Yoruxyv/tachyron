@@ -1,15 +1,15 @@
 import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
 import type { View } from '@/components/useNavigation';
 
-import ApiStatus from './ApiStatus';
-import Comparison from './Comparison';
-import History from './History';
-import JobForm from './JobForm';
-import JobProgress from './JobProgress';
-import Results, { Kpis } from './Results';
-import type { useHistory } from './useHistory';
-import type { useJob } from './useJob';
-import type { useApiHealth } from './useApiHealth';
+import ApiStatus from '@/features/diagnostics/ApiStatus';
+import Comparison from '@/features/history/Comparison';
+import History from '@/features/history/History';
+import JobForm from '@/features/benchmarks/experiments/JobForm';
+import JobProgress from '@/features/benchmarks/experiments/JobProgress';
+import Results, { Kpis } from '@/features/benchmarks/results/Results';
+import type { useHistory } from '@/features/history/hooks/useHistory';
+import type { useJob } from '@/features/benchmarks/hooks/useJob';
+import type { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
 interface Props {
   readonly view: View;
