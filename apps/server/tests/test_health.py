@@ -2,13 +2,13 @@
 """Exercise the public liveness contract without starting a network server."""
 
 import pytest
-from fastapi.testclient import TestClient
 
 from tachyron.api import app
+from tests.job_helpers import local_client
 
 
 def test_health_reports_process_liveness() -> None:
-    with TestClient(app) as client:
+    with local_client(app) as client:
         response = client.get("/health")
 
     assert response.status_code == 200
@@ -23,7 +23,7 @@ def test_health_reports_process_liveness() -> None:
 def test_unsupported_requests_are_not_reported_healthy(
     method: str, path: str, status: int
 ) -> None:
-    with TestClient(app) as client:
+    with local_client(app) as client:
         response = client.request(method, path)
 
     assert response.status_code == status

@@ -1,4 +1,5 @@
 import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
+import type { ReactNode } from 'react';
 import type { View } from '@/components/useNavigation';
 
 import ApiStatus from '@/features/diagnostics/ApiStatus';
@@ -12,6 +13,9 @@ import type { useJob } from '@/features/benchmarks/hooks/useJob';
 import type { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
 interface Props {
+  readonly importAction?: ReactNode;
+  readonly importPanel?: ReactNode;
+  readonly importing?: boolean;
   readonly view: View;
   readonly navigate: (view: View) => void;
   readonly datasets: Dataset[];
@@ -47,13 +51,17 @@ export default function BenchmarkWorkspace({
   selectDataset,
   health,
   jobVerified,
+  importAction,
+  importPanel,
+  importing = false,
 }: Props) {
   const form = (
     <JobForm
       datasets={datasets}
       datasetError={datasetError}
       retryDatasets={retryDatasets}
-      disabled={execution.busy || active || execution.coolingDown}
+      disabled={execution.busy || active || execution.coolingDown || importing}
+      importAction={view === 'experiments' ? importAction : undefined}
       pending={execution.pending?.request}
       submit={execution.submit}
       datasetId={datasetId}
@@ -102,7 +110,10 @@ export default function BenchmarkWorkspace({
   if (view === 'experiments')
     return (
       <div className="experiment-grid">
-        {form}
+        <div className="stack">
+          {form}
+          {importPanel}
+        </div>
         <JobProgress
           job={execution.job}
           busy={execution.busy}

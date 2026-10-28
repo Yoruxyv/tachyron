@@ -12,11 +12,11 @@ from unittest.mock import Mock
 import pytest
 import uvicorn
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from PIL import Image
 
 from tachyron.api import create_app
 from tachyron.jobs.coordinator import Settings
+from tests.job_helpers import local_client
 
 helper = importlib.import_module("apps.web.scripts.serve-test-api")
 
@@ -70,7 +70,7 @@ def test_workspace_lives_until_api_shutdown(
                         assert image.mode == "RGB"
                         assert image.size == (16, 12)
                         assert image.getpixel((0, 0)) == (index * 25, 60, 90)
-            with TestClient(app) as client:
+            with local_client(app) as client:
                 assert client.get("/health").json() == {"status": "ok"}
                 assert client.get("/api/benchmarks").json() == []
                 assert settings.data_dir.is_dir()

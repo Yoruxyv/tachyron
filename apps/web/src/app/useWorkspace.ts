@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useDatasetImport } from '@/features/datasets/hooks/useDatasetImport';
 import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
 import { useNavigation } from '@/components/useNavigation';
 import { useCatalog } from '@/features/datasets/hooks/useCatalog';
@@ -71,6 +72,15 @@ export function useWorkspace() {
   }, [checkHealth]);
   const [selected, setSelected] = useState<WorkerCount>(4);
   const [datasetId, setDatasetId] = useState('');
+  const acceptImported = catalog.acceptImported;
+  const imported = useCallback(
+    (dataset: Dataset) => {
+      acceptImported(dataset);
+      if (!state.configurationLocked) setDatasetId(dataset.dataset_id);
+    },
+    [acceptImported, state.configurationLocked],
+  );
+  const importer = useDatasetImport(imported);
   const selectedDataset = selectedDatasetId(
     catalog.datasets,
     datasetId,
@@ -87,6 +97,7 @@ export function useWorkspace() {
     view,
     navigate,
     catalog,
+    importer,
     execution,
     history,
     health,
@@ -95,7 +106,7 @@ export function useWorkspace() {
     datasetId: selectedDataset,
     selectDataset: setDatasetId,
     active: state.active,
-    configurationLocked: state.configurationLocked,
+    configurationLocked: state.configurationLocked || importer.busy,
     jobVerified,
     confirmedActive: jobVerified && state.running,
     backToTop,

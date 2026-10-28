@@ -4,12 +4,15 @@ import BenchmarkWorkspace from '@/app/BenchmarkWorkspace';
 import WorkspaceStatus from '@/features/diagnostics/WorkspaceStatus';
 import ApiNotifications from '@/features/diagnostics/ApiNotifications';
 import { useWorkspace } from '@/app/useWorkspace';
+import DatasetImport from '@/features/datasets/components/DatasetImport';
+import DatasetFolderPicker from '@/features/datasets/components/DatasetFolderPicker';
 
 export default function App() {
   const {
     view,
     navigate,
     catalog,
+    importer,
     execution,
     history,
     health,
@@ -50,6 +53,21 @@ export default function App() {
           jobVerified={jobVerified}
         />
         <BenchmarkWorkspace
+          importing={importer.busy}
+          importAction={
+            <DatasetFolderPicker
+              disabled={importer.busy}
+              choose={importer.choose}
+            />
+          }
+          importPanel={
+            importer.selectionRevision > 0 || importer.identifier ? (
+              <DatasetImport
+                key={importer.selectionRevision}
+                importer={importer}
+              />
+            ) : undefined
+          }
           view={view}
           navigate={navigate}
           datasets={catalog.datasets}
@@ -65,6 +83,14 @@ export default function App() {
           health={health}
           jobVerified={jobVerified}
         />
+        {importer.busy && view !== 'experiments' && (
+          <output>
+            Dataset import active.{' '}
+            <button type="button" onClick={() => navigate('experiments')}>
+              Review import
+            </button>
+          </output>
+        )}
         <p className="methodology">
           <span>
             ◉ &nbsp; Single-host process-pool measurements. Independent

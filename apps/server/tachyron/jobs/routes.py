@@ -46,7 +46,10 @@ SubmissionKey = Annotated[
 @router.get("/datasets")
 def datasets(manager: Manager) -> list[DatasetInfo]:
     """List frozen allowlisted workloads and safe discovery failures."""
-    return manager.datasets
+    return sorted(
+        [*manager.datasets, *manager.catalog.datasets()],
+        key=lambda item: item.dataset_id,
+    )
 
 
 @router.post("/jobs", status_code=202)

@@ -68,6 +68,16 @@ function timestamp(value: unknown): string {
 export function parseDataset(value: unknown): Dataset {
   const data = object(value);
   return {
+    ...(data.display_name !== undefined
+      ? { display_name: nullable(data.display_name, string) }
+      : {}),
+    ...(data.source !== undefined ? { source: string(data.source) } : {}),
+    ...(data.selection_mode !== undefined
+      ? { selection_mode: nullable(data.selection_mode, string) }
+      : {}),
+    ...(data.excluded_count !== undefined
+      ? { excluded_count: integer(data.excluded_count) }
+      : {}),
     dataset_id: string(data.dataset_id),
     input_count: nullable(data.input_count, integer),
     total_bytes: nullable(data.total_bytes, integer),

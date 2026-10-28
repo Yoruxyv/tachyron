@@ -53,6 +53,10 @@ class DatasetInfo(BaseModel):
     input_count: int | None = None
     total_bytes: int | None = None
     error_code: str | None = None
+    display_name: str | None = None
+    source: str = "environment"
+    selection_mode: str | None = None
+    excluded_count: int = 0
 
 
 class Job(BaseModel):

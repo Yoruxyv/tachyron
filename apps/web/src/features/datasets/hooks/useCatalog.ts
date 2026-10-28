@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, getDatasets } from '@/api/benchmarks';
 import type { Dataset } from '@/api/contracts';
@@ -10,6 +10,7 @@ const failureText = (error: unknown) =>
 
 /** Fetch the frozen dataset registry, aborting obsolete requests and exposing retry state. */
 export function useCatalog() {
+  const committed = useRef(new Map<string, Dataset>());
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -21,7 +22,12 @@ export function useCatalog() {
     getDatasets(controller.signal)
       .then((items) => {
         if (!controller.signal.aborted) {
-          setDatasets(items);
+          setDatasets([
+            ...new Map([
+              ...items.map((item) => [item.dataset_id, item] as const),
+              ...committed.current,
+            ]).values(),
+          ]);
           setError('');
           setVerifiedAt(performance.now());
         }
@@ -34,7 +40,16 @@ export function useCatalog() {
       });
     return () => controller.abort();
   }, [revision]);
+  const acceptImported = useCallback((dataset: Dataset) => {
+    committed.current.set(dataset.dataset_id, dataset);
+    setDatasets((items) => [
+      ...items.filter((item) => item.dataset_id !== dataset.dataset_id),
+      dataset,
+    ]);
+    setVerifiedAt(performance.now());
+  }, []);
   return {
+    acceptImported,
     datasets,
     error,
     loading,

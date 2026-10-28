@@ -20,6 +20,9 @@ import psutil
 from tachyron.benchmarking.exports import read_experiment
 from tachyron.benchmarking.models import BenchmarkError, RunRecord
 from tachyron.benchmarking.runner import run_experiment
+from tachyron.imports.models import DatasetImportError, ImportLimits
+from tachyron.imports.service import Session
+from tachyron.imports.storage import Catalog
 from tachyron.jobs.models import (
     TERMINAL,
     DatasetInfo,
@@ -47,6 +50,16 @@ class Settings:
     datasets: dict[str, Path] = field(default_factory=dict[str, Path])
     data_dir: Path = Path("results/api")
     queue_capacity: int = 2
+    dataset_dir: Path | None = None
+    import_limits: ImportLimits = field(default_factory=ImportLimits)
+    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "::1")
+    allowed_origins: tuple[str, ...] = (
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:4174",
+        "http://127.0.0.1:4173",
+    )
 
     def __post_init__(self) -> None:
         if len(self.datasets) > 32 or any(
@@ -71,7 +84,13 @@ class Settings:
             if not isinstance(name, str) or not isinstance(path, str):
                 raise TypeError("Dataset identifiers and roots must be strings")
             datasets[name] = Path(path)
-        return cls(datasets, Path(os.environ.get("TACHYRON_DATA_DIR", "results/api")))
+        return cls(
+            datasets,
+            Path(os.environ.get("TACHYRON_DATA_DIR", "results/api")),
+            dataset_dir=Path(
+                os.environ.get("TACHYRON_DATASET_DIR", "datasets/imported")
+            ),
+        )
 
 
 class AdmissionError(ValueError):
@@ -96,6 +115,9 @@ class Coordinator:
         self._thread: Thread | None = None
         self._manifests: dict[str, DatasetManifest] = {}
         self.datasets: list[DatasetInfo] = []
+        self.catalog: Catalog
+        self.import_session: Session | None = None
+        self._import_reserved = False
 
     def start(self) -> None:
         """Initialize history and discovery before accepting work; clean up on error.
@@ -108,6 +130,20 @@ class Coordinator:
         if self._thread is not None:
             raise RuntimeError("Coordinator already started")
         candidate = self.settings.data_dir.resolve()
+        managed = (
+            self.settings.dataset_dir
+            or self.settings.data_dir.with_name(
+                self.settings.data_dir.name + "-datasets"
+            )
+        ).resolve()
+        for other in (
+            candidate,
+            *(root.resolve() for root in self.settings.datasets.values()),
+        ):
+            if managed.is_relative_to(other) or other.is_relative_to(managed):
+                raise ValueError(
+                    "Managed datasets, history and inputs must not overlap"
+                )
         for root in self.settings.datasets.values():
             canonical = root.resolve()
             if candidate.is_relative_to(canonical) or canonical.is_relative_to(
@@ -118,7 +154,13 @@ class Coordinator:
         self.directory = dataset_root(self.settings.data_dir)
         self.store = HistoryStore(self.directory / "history.sqlite3")
         try:
+            self.catalog = Catalog(managed, self.settings.import_limits)
+            self.catalog.recover()
             self._discover()
+            if set(self.settings.datasets) & {
+                item.dataset_id for item in self.catalog.datasets()
+            }:
+                raise ValueError("Environment and managed dataset identifiers collide")
             self.store.recover(stamp())
             self._healthy = True
             self._thread = Thread(target=self._work, name="tachyron-jobs")
@@ -159,9 +201,9 @@ class Coordinator:
                 if previous.request != request:
                     raise AdmissionError("idempotency_conflict", 409)
                 return previous
-            manifest = self._manifests.get(request.dataset_id)
-            if manifest is None:
-                raise AdmissionError("dataset_unavailable", 404)
+            if self._import_reserved:
+                raise AdmissionError("import_in_progress", 409)
+            manifest = self.resolve_manifest(request.dataset_id)
             manifest.limits.check_output(request.transform(), len(manifest.entries))
             if len(self._queue) >= self.settings.queue_capacity:
                 raise AdmissionError("queue_full", 429)
@@ -229,11 +271,54 @@ class Coordinator:
                 self._condition.notify_all()
                 for identifier in tuple(self._signals):
                     self.cancel(identifier)
+                session = self.import_session
+            if session is not None:
+                session.cancel()
+                session.done.wait()
+            with self._condition:
+                self._condition.wait_for(lambda: not self._import_reserved)
         finally:
             # Joining before closing storage also covers partial shutdown failures.
             if self._thread is not None and self._thread.ident is not None:
                 self._thread.join()
             self.store.close()
+            if hasattr(self, "catalog"):
+                self.catalog.close()
+
+    def reserve_import(self) -> None:
+        """Serialize import admission against queued and executing job ownership."""
+        with self._condition:
+            if self._closing or not self._healthy:
+                raise DatasetImportError("coordinator_unavailable", 503)
+            if self._signals or self._queue:
+                raise DatasetImportError("workload_busy", 409)
+            if self._import_reserved:
+                raise DatasetImportError("import_busy", 429)
+            self._import_reserved = True
+
+    def attach_import(self, session: Session) -> None:
+        """Expose the sole session and honor shutdown during helper startup."""
+        with self._condition:
+            self.import_session = session
+            closing = self._closing
+        if closing:
+            session.cancel()
+
+    def release_import(self) -> None:
+        """Release admission only after helper ownership has drained."""
+        with self._condition:
+            self.import_session = None
+            self._import_reserved = False
+            self._condition.notify_all()
+
+    def resolve_manifest(
+        self, identifier: str, expected: str | None = None
+    ) -> DatasetManifest:
+        """Resolve frozen environment or durable managed identity, never rediscover."""
+        manifest = self._manifests.get(identifier) or self.catalog.manifest(identifier)
+        if manifest is None or (expected is not None and manifest.sha256 != expected):
+            raise AdmissionError("dataset_unavailable", 404)
+        return manifest
 
     def _work(self) -> None:
         """Run one job at a time; a storage fault closes admission until restart."""
@@ -289,7 +374,7 @@ class Coordinator:
             parent.mkdir(mode=0o700)
             owned = True
             experiment = run_experiment(
-                self._manifests[job.request.dataset_id],
+                self.resolve_manifest(job.request.dataset_id, job.manifest_sha256),
                 directory,
                 job.request.transform(),
                 job.request.benchmark_config(),
@@ -334,7 +419,9 @@ class Coordinator:
         with suppress(BenchmarkError, OSError):
             experiment = read_experiment(directory / "runs.json")
             context = experiment.context
-            manifest = self._manifests[job.request.dataset_id]
+            manifest = self.resolve_manifest(
+                job.request.dataset_id, job.manifest_sha256
+            )
             if (
                 context.manifest_sha256 == job.manifest_sha256
                 and context.input_count == job.input_count

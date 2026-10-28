@@ -146,6 +146,12 @@ def _decode_rgb(
         raise ProcessingError("invalid_image", "Image cannot be decoded") from error
 
 
+def validate_image(data: bytes, limits: ResourceLimits = DEFAULT_LIMITS) -> None:
+    """Validate with the established decoder, releasing its normalized image."""
+    rgb, _ = _decode_rgb(data, limits)
+    rgb.close()
+
+
 def process_image(
     root: Path,
     entry: ManifestEntry,
