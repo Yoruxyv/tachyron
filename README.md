@@ -3,11 +3,11 @@
 Reproducible parallel image-processing benchmarks on a single machine.
 
 The Python package provides deterministic sequential and spawn-process batch
-image processing through a minimal CLI. The web application remains an accessible
-shell with a FastAPI liveness check. The benchmark CLI measures real pool scaling
+image processing through a minimal CLI. The React dashboard configures real jobs,
+shows batch progress, and compares persisted measurements. The benchmark CLI measures real pool scaling
 and exports raw runs, sampled CPU/RSS, and comparison statistics. The API accepts
-bounded background experiments and retains SQLite history; dashboard charts are
-not implemented.
+bounded background experiments and retains SQLite history. Six charts and an
+accessible results table explain time, image throughput, CPU, RSS, speedup and efficiency.
 
 ## Requirements
 
@@ -34,13 +34,15 @@ npm --prefix apps/web ci
 npm --prefix apps/web run dev
 ```
 
-Open [the application](http://127.0.0.1:5173) and select **Check connection**.
+Open [the application](http://127.0.0.1:5173). Register a dataset as described in
+[dashboard setup and tooling](docs/dashboard.md), then configure an experiment.
+**API Tests → Check connection** checks process liveness.
 [GET /health](http://127.0.0.1:8000/health) returns `{"status":"ok"}`.
 This reports process liveness only; it says nothing about processing readiness.
 
-Both development servers bind to loopback. Vite proxies `/health` to the local
+Both development servers bind to loopback. Vite proxies `/api` and `/health` to the local
 API, so no permissive CORS policy or browser environment secrets are needed.
-Requests time out after five seconds; failures show a safe message and allow retry.
+API requests time out after ten seconds (five for liveness); failures show a safe message and allow retry.
 Stop either server with Ctrl+C.
 
 For an API-only environment, install `--extra api` instead of `--extra dev`.
@@ -144,8 +146,8 @@ lint/type/tests/build checks on pull requests and pushes to `main`. Action revis
 and tool versions are pinned. The backend test matrix includes Linux and Windows.
 Prettier, Git-aware text hygiene, offline documentation links, and workflow linting
 also run in CI. External links run separately on a weekly schedule or manual trigger.
-Real spawn integration runs in both OS/Python test matrices. Playwright E2E and
-load testing remain deferred.
+Real spawn integration runs in both OS/Python test matrices. The frontend test job
+also runs a real-API Playwright flow; HTTP load testing remains deferred.
 
 `npm run build` creates `apps/web/dist/`. A future deployment must serve `/health` from
 the backend on the same origin; Vite's development proxy is not a production server.
@@ -159,7 +161,7 @@ the backend on the same origin; Vite's development proxy is not a production ser
 - `apps/server/tachyron/benchmarking/`: schedule, observation, evidence and pure statistics.
 - `apps/server/tachyron/benchmark_cli.py`: independent benchmark run/compare commands.
 - `apps/web/src/api/`: browser HTTP contract validation and cancellation.
-- `apps/web/src/App.tsx`: minimal application shell; no benchmark state or calculations.
+- `apps/web/src/App.tsx`: lifecycle composition, focus transfer, and worker inspection.
 - Root quality configuration and `.github/workflows/`: repository-wide gates.
 
 See the [contributor quality guide](docs/quality.md) for formatter ownership,

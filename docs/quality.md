@@ -258,8 +258,14 @@ not measured network transfer or initial-route loading cost. Missing/empty build
 output is an error. Size growth is informational: there are no warning or failure
 budgets until representative application measurements justify them.
 
-The reference bundle script's fixed thresholds, import normalizer's app/shared/feature
-ownership assumptions, and Lighthouse scripts' product names and score budgets were
-not adopted. Existing ESLint alias and no-explicit-any rules cover today's imports.
-Playwright, browser performance budgets, and engine/package extraction require
-actual workflows and remain deferred.
+The dashboard keeps this checker unchanged. The original shell measured 221,917 raw
+JavaScript bytes and 68,855 per-file gzip bytes before dashboard implementation.
+Use `bundle:check` after rebuilding for current measurements; Chart.js now occupies
+a separate chunk loaded when complete results are displayed.
+
+The [frontend tooling guide](dashboard.md#adopted-scripts) documents the adopted
+TypeScript-aware import normalizer, advisory Lighthouse runner, and their safety
+boundaries. `imports:check` joins the existing Frontend Quality job; the existing
+Frontend Tests job runs unit coverage plus one real-API Playwright flow.
+Required job names and aggregate dependencies remain unchanged. The separate
+Lighthouse workflow reports scores without adding mandatory score gates.
