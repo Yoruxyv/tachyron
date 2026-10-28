@@ -63,6 +63,7 @@ export function useJob() {
   const [pending, setPending] = useState(recovery.submission);
   const pendingRef = useRef(pending);
   const [error, setError] = useState('');
+  const [verifiedAt, setVerifiedAt] = useState(0);
   const [storageWarning, setStorageWarning] = useState('');
   const [busy, setBusy] = useState(false);
   const [retryAt, setRetryAt] = useState(0);
@@ -110,6 +111,7 @@ export function useJob() {
         const current = await getJob(id ?? '', controller.signal);
         if (controller.signal.aborted) return;
         setJob((previous) => latestSnapshot(previous, current));
+        setVerifiedAt(performance.now());
         setError('');
         failures = 0;
         if (isTerminal(current.state)) {
@@ -118,6 +120,7 @@ export function useJob() {
         }
       } catch (failure) {
         if (controller.signal.aborted) return;
+        setVerifiedAt(0);
         failures += 1;
         setError(message(failure));
         if (failure instanceof ApiError && failure.status === 404) {
@@ -155,6 +158,7 @@ export function useJob() {
 
   /** Preserve ambiguous acceptance; only explicit client rejections release the key. */
   function recordSubmissionFailure(failure: unknown) {
+    setVerifiedAt(0);
     setError(message(failure));
     if (!(failure instanceof ApiError) || failure.status < 400) return;
     setRetryAt(Date.now() + failure.retryAfter);
@@ -187,6 +191,7 @@ export function useJob() {
     persist(submission);
     setBusy(true);
     setError('');
+    setVerifiedAt(0);
     try {
       const accepted = await startJob(
         submission.request,
@@ -195,6 +200,7 @@ export function useJob() {
       );
       if (!mounted.current) return;
       setJob(accepted);
+      setVerifiedAt(performance.now());
       setId(accepted.id);
       persist({ id: accepted.id });
       pendingRef.current = null;
@@ -215,14 +221,19 @@ export function useJob() {
     const controller = new AbortController();
     action.current = controller;
     setBusy(true);
+    setVerifiedAt(0);
     try {
       const current = await cancelJob(job.id, controller.signal);
       if (!mounted.current) return;
       setJob((previous) => latestSnapshot(previous, current));
+      setVerifiedAt(performance.now());
       if (isTerminal(current.state)) setPolling(false);
       setError('');
     } catch (failure) {
-      if (mounted.current) setError(message(failure));
+      if (mounted.current) {
+        setVerifiedAt(0);
+        setError(message(failure));
+      }
     } finally {
       action.current = null;
       if (mounted.current) setBusy(false);
@@ -230,6 +241,7 @@ export function useJob() {
   }
 
   function resume() {
+    setVerifiedAt(0);
     setError('');
     setPolling(true);
     setRevision((value) => value + 1);
@@ -239,6 +251,7 @@ export function useJob() {
     pending,
     busy,
     error,
+    verifiedAt,
     storageWarning,
     polling,
     submit,

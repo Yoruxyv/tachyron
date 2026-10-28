@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ApiError, getDatasets, getDetail, getHistory } from '@/api/benchmarks';
 import {
@@ -17,6 +17,7 @@ export function useCatalog() {
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [verifiedAt, setVerifiedAt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -25,6 +26,7 @@ export function useCatalog() {
         if (!controller.signal.aborted) {
           setDatasets(items);
           setError('');
+          setVerifiedAt(performance.now());
         }
       })
       .catch((failure: unknown) => {
@@ -39,7 +41,11 @@ export function useCatalog() {
     datasets,
     error,
     loading,
-    reload: () => setRevision((value) => value + 1),
+    verifiedAt,
+    reload: () => {
+      setLoading(true);
+      setRevision((value) => value + 1);
+    },
   };
 }
 
@@ -51,6 +57,7 @@ export function useCatalog() {
  * @returns Independent list/detail loading and error states, selection, and pagination.
  */
 export function useHistory(terminalId: string | null) {
+  const [verifiedAt, setVerifiedAt] = useState(0);
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [offset, setOffset] = useState(0);
   const [selectedId, setSelectedId] = useState('');
@@ -60,6 +67,9 @@ export function useHistory(terminalId: string | null) {
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [settledOffset, setSettledOffset] = useState<number | null>(null);
+  const previousOffset = useRef(offset);
+  const previousSelection = useRef(selectedId);
 
   useEffect(() => {
     if (terminalId) {
@@ -71,11 +81,15 @@ export function useHistory(terminalId: string | null) {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    setItems([]);
+    if (previousOffset.current !== offset) {
+      setItems([]);
+      previousOffset.current = offset;
+    }
     getHistory(controller.signal, offset)
       .then((records) => {
         if (controller.signal.aborted) return;
         setItems(records);
+        setVerifiedAt(performance.now());
         setError('');
         setSelectedId((current) =>
           records.some((record) => record.job.id === current)
@@ -87,13 +101,19 @@ export function useHistory(terminalId: string | null) {
         if (!controller.signal.aborted) setError(failureText(failure));
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setSettledOffset(offset);
+          setLoading(false);
+        }
       });
     return () => controller.abort();
   }, [offset, revision, terminalId]);
   useEffect(() => {
-    setDetail(null);
-    setDetailError('');
+    if (previousSelection.current !== selectedId) {
+      setDetail(null);
+      setDetailError('');
+      previousSelection.current = selectedId;
+    }
     if (!selectedId) {
       setDetailLoading(false);
       return;
@@ -102,7 +122,15 @@ export function useHistory(terminalId: string | null) {
     setDetailLoading(true);
     getDetail(selectedId, controller.signal)
       .then((record) => {
-        if (!controller.signal.aborted) setDetail(record);
+        if (!controller.signal.aborted) {
+          setDetail((previous) =>
+            JSON.stringify(previous) === JSON.stringify(record)
+              ? previous
+              : record,
+          );
+          setDetailError('');
+          setVerifiedAt(performance.now());
+        }
       })
       .catch((failure: unknown) => {
         if (!controller.signal.aborted) setDetailError(failureText(failure));
@@ -122,7 +150,13 @@ export function useHistory(terminalId: string | null) {
     error,
     detailError,
     loading,
+    initialLoading: loading && settledOffset !== offset,
     detailLoading,
-    reload: () => setRevision((value) => value + 1),
+    verifiedAt,
+    reload: () => {
+      setLoading(true);
+      setDetailLoading(Boolean(selectedId));
+      setRevision((value) => value + 1);
+    },
   };
 }
