@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 
 import * as api from '@/api/health';
-import { useApiHealth } from '@/features/benchmarks/useApiHealth';
+import { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
 function useCheckedHealth() {
   const health = useApiHealth();

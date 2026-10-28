@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { chartDefinitions, chartValues } from '@/features/benchmarks/chartData';
+import {
+  chartDefinitions,
+  chartValues,
+} from '@/features/benchmarks/results/chartData';
 
 import { summaries } from './fixtures';
 

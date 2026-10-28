@@ -139,26 +139,54 @@ reconstruction competes with the authoritative backend exports.
 
 ## Source ownership and documentation
 
-| Location                                             | Responsibility                                                               |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `apps/web/src/App.tsx`                               | Compose the shell, benchmark views and notifications                         |
-| `src/features/benchmarks/useWorkspace.ts`            | Own lifecycle composition, focus transfer and persistent selections          |
-| `src/features/benchmarks/useNotifications.ts`        | Own notification episodes and coordinate retries through request owners      |
-| `src/features/benchmarks/BenchmarkNotices.tsx`       | Dataset availability, request errors and job recovery announcements          |
-| `src/features/benchmarks/BenchmarkWorkspace.tsx`     | Compose view layouts without owning requests or persistent selection         |
-| `src/features/benchmarks/Comparison.tsx`             | Saved-evidence selection, loading/failure states and measured comparisons    |
-| `src/api/contracts.ts`, `decode.ts`, `benchmarks.ts` | Consumed API types, runtime boundary validation, sanitized HTTP transport    |
-| `src/components/`                                    | Shell, hash navigation, icons, chart failure boundary                        |
-| `src/features/benchmarks/useJob.ts`                  | Submission identity/recovery, status lifecycle, cancellation and cleanup     |
-| `src/features/benchmarks/useHistory.ts`              | Registry and history requests, paging, selected evidence and race protection |
-| `src/features/benchmarks/chartData.ts`, `Charts.tsx` | Presentation-only projections and owned Chart.js instances                   |
-| Remaining benchmark components                       | Setup, progress, results, history and liveness presentation                  |
-| `apps/web/scripts/`                                  | Standalone frontend maintenance, audit and test-support commands             |
+Paths beginning `src/` below are relative to `apps/web/`.
 
-Paths beginning `src/` in this table are relative to `apps/web/`. Chart.js is loaded
-as a separate production chunk when complete measurements are displayed. Network
-requests remain outside chart components, and every chart instance is destroyed on
-replacement/unmount. Chart failures leave the measured table available.
+| Location                                                 | Responsibility                                                                                 |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/App.tsx`                                            | Compose the shell, workspace and notifications                                                 |
+| `src/app/useWorkspace.ts`                                | Compose lifecycle hooks; own shared dataset/worker selection and navigation focus              |
+| `src/app/BenchmarkWorkspace.tsx`, `BenchmarkNotices.tsx` | Compose feature views and cross-feature availability/recovery announcements                    |
+| `src/features/benchmarks/experiments/`                   | Configure the fixed pipeline and display job progress                                          |
+| `src/features/benchmarks/hooks/useJob.ts`                | Own submission identity, recovery, polling, cancellation and cleanup                           |
+| `src/features/benchmarks/results/`                       | Render server measurements, worker inspection, chart projections and Chart.js instances        |
+| `src/features/datasets/components/DatasetSelect.tsx`     | Present registered dataset choices in the shell and experiment form                            |
+| `src/features/datasets/hooks/useCatalog.ts`              | Own dataset discovery, retry, stale-response protection and request cleanup                    |
+| `src/features/history/`                                  | Browse and select saved experiments; paginate and inspect evidence                             |
+| `src/features/history/hooks/useHistory.ts`               | Own history and selected-evidence requests, cached data and race protection                    |
+| `src/features/diagnostics/`, `hooks/`                    | Present health, troubleshooting and notifications; own health probes and notification episodes |
+| `src/lib/format.ts`                                      | Format numbers and timestamps shared by benchmark and history presentation                     |
+| `src/api/`                                               | Share API types, runtime boundary validation and sanitized HTTP transport                      |
+| `src/components/`                                        | Shell, hash navigation, reusable controls, icons and chart failure boundary                    |
+| `apps/web/scripts/`                                      | Standalone frontend maintenance, audit and test-support commands                               |
+
+Application composition consumes the features; features never import `src/app/`.
+`useWorkspace` still mounts each request owner once and retains shared selection
+across views. Dataset discovery is independent of history: `useCatalog` was extracted
+with its effect, abort guards, retry state and existing error text unchanged.
+The small error formatter remains local to each request owner to avoid coupling
+otherwise independent features through a shared policy module.
+
+Two runtime dependencies between features are deliberate: the experiment form
+uses the dataset selector, and history's `Comparison` delegates measured rendering
+to benchmark results. `Comparison` belongs to history because it selects saved
+experiments and presents their loading/failure states. It does not duplicate charts
+or statistics. `WorkerSelector` remains beside results, shared with the compact form;
+worker inspection does not alter the backend execution matrix.
+
+Diagnostics receives existing request owners through props. Its notification hook
+uses type-only references to their return contracts so retry coordination stays
+consistent without duplicate interfaces, requests, caches or job state. It does not
+invoke those hooks or import the application orchestrator. The shell retains its
+existing dataset selector dependency; selection state belongs to `useWorkspace`.
+Cross-feature imports use `@/`; nearby imports within a feature remain relative.
+
+Chart.js is loaded as a separate production chunk when complete measurements are
+displayed. Network requests remain outside chart components, and every chart
+instance is destroyed on replacement/unmount. Chart failures leave the measured
+table available. The reorganization adds no barrel exports, state infrastructure,
+API behavior, dataset management, styles or dependency changes.
+The two source directories named `datasets` and `results` have narrow Git ignore
+exceptions; generated datasets and benchmark output remain ignored.
 
 The visual reference's final cascade uses a 14px root, Inter (400–700), and IBM
 Plex Mono (400–600); its earlier 13px declaration is overridden. Both font families

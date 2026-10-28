@@ -3,9 +3,9 @@ import type { ReactNode } from 'react';
 import type { WorkerCount } from '@/api/contracts';
 import Select from '@/components/Select';
 
-import Results from './Results';
+import Results from '@/features/benchmarks/results/Results';
 import HistoryInspector from './HistoryInspector';
-import type { useHistory } from './useHistory';
+import type { useHistory } from './hooks/useHistory';
 
 interface Props {
   readonly history: ReturnType<typeof useHistory>;

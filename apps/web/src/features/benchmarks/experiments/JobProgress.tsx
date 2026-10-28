@@ -1,6 +1,6 @@
 import { isTerminal, type Job } from '@/api/contracts';
 
-import { timestamp } from './format';
+import { timestamp } from '@/lib/format';
 
 export default function JobProgress({
   job,

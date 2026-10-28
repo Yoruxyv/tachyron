@@ -1,4 +1,7 @@
-import { useNotifications, type NotificationSources } from './useNotifications';
+import {
+  useNotifications,
+  type NotificationSources,
+} from './hooks/useNotifications';
 
 /** One stable toast per failure episode; request owners retain errors and recovery state. */
 export default function ApiNotifications(sources: NotificationSources) {

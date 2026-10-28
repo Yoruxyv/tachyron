@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { WorkerCount, WorkerSummary } from '@/api/contracts';
 
 import { chartDefinitions, chartValues, type ChartMetric } from './chartData';
-import { metric } from './format';
+import { metric } from '@/lib/format';
 
 export default function ChartPanel({
   kind,

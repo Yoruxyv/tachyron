@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import type * as ChartJs from 'chart.js';
 import { describe, expect, it, vi } from 'vitest';
 
-import Charts from '@/features/benchmarks/Charts';
+import Charts from '@/features/benchmarks/results/Charts';
 
 import { summaries } from './fixtures';
 

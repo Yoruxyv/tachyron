@@ -1,6 +1,6 @@
 import type { HistoryDetail, WorkerCount } from '@/api/contracts';
 
-import { metric, timestamp } from './format';
+import { metric, timestamp } from '@/lib/format';
 
 export default function HistoryInspector({
   detail,

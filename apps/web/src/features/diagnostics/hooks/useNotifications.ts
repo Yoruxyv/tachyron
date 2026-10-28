@@ -9,8 +9,9 @@ import {
 import { isTerminal } from '@/api/contracts';
 
 import type { useApiHealth } from './useApiHealth';
-import type { useCatalog, useHistory } from './useHistory';
-import type { useJob } from './useJob';
+import type { useCatalog } from '@/features/datasets/hooks/useCatalog';
+import type { useHistory } from '@/features/history/hooks/useHistory';
+import type { useJob } from '@/features/benchmarks/hooks/useJob';
 
 export interface NotificationSources {
   readonly health: ReturnType<typeof useApiHealth>;
