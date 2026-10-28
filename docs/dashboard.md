@@ -141,7 +141,9 @@ reconstruction competes with the authoritative backend exports.
 
 | Location                                             | Responsibility                                                               |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `apps/web/src/App.tsx`                               | Own lifecycle hooks, focus transfer and persistent worker inspection         |
+| `apps/web/src/App.tsx`                               | Compose the shell, benchmark views and notifications                         |
+| `src/features/benchmarks/useWorkspace.ts`            | Own lifecycle composition, focus transfer and persistent selections          |
+| `src/features/benchmarks/useNotifications.ts`        | Own notification episodes and coordinate retries through request owners      |
 | `src/features/benchmarks/BenchmarkNotices.tsx`       | Dataset availability, request errors and job recovery announcements          |
 | `src/features/benchmarks/BenchmarkWorkspace.tsx`     | Compose view layouts without owning requests or persistent selection         |
 | `src/features/benchmarks/Comparison.tsx`             | Saved-evidence selection, loading/failure states and measured comparisons    |

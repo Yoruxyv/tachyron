@@ -1,55 +1,28 @@
-import { useEffect, useState } from 'react';
-
-import { isTerminal, type WorkerCount } from '@/api/contracts';
 import Shell from '@/components/Shell';
-import { useNavigation } from '@/components/useNavigation';
 import BenchmarkNotices from '@/features/benchmarks/BenchmarkNotices';
 import BenchmarkWorkspace from '@/features/benchmarks/BenchmarkWorkspace';
-import { useCatalog, useHistory } from '@/features/benchmarks/useHistory';
-import { useJob } from '@/features/benchmarks/useJob';
-import { useApiHealth } from '@/features/benchmarks/useApiHealth';
 import WorkspaceStatus from '@/features/benchmarks/WorkspaceStatus';
 import ApiNotifications from '@/features/benchmarks/ApiNotifications';
+import { useWorkspace } from '@/features/benchmarks/useWorkspace';
 
 export default function App() {
-  const { view, navigate } = useNavigation();
-  const catalog = useCatalog();
-  const execution = useJob();
-  const terminalId =
-    execution.job && isTerminal(execution.job.state) ? execution.job.id : null;
-  const history = useHistory(terminalId);
-  const health = useApiHealth(
-    Math.max(catalog.verifiedAt, history.verifiedAt, execution.verifiedAt),
-  );
-  const checkHealth = health.check;
-  useEffect(() => {
-    void checkHealth();
-  }, [checkHealth]);
-  const [selected, setSelected] = useState<WorkerCount>(4);
-  const [datasetId, setDatasetId] = useState('');
-  const selectedDataset =
-    execution.pending?.request.dataset_id ??
-    (datasetId ||
-      catalog.datasets.find(
-        (dataset) =>
-          dataset.error_code === null && (dataset.input_count ?? 0) > 0,
-      )?.dataset_id ||
-      '');
-
-  useEffect(() => {
-    if (view === 'history') document.getElementById('history-search')?.focus();
-  }, [view]);
-
-  const active =
-    execution.recovering ||
-    Boolean(execution.job && !isTerminal(execution.job.state));
-  const jobVerified =
-    health.status === 'API online' &&
-    !health.checking &&
-    !execution.error &&
-    execution.verifiedAt > health.failedAt;
-  const confirmedActive =
-    jobVerified && Boolean(execution.job && !isTerminal(execution.job.state));
+  const {
+    view,
+    navigate,
+    catalog,
+    execution,
+    history,
+    health,
+    selected,
+    selectWorker,
+    datasetId,
+    selectDataset,
+    active,
+    configurationLocked,
+    jobVerified,
+    confirmedActive,
+    backToTop,
+  } = useWorkspace();
 
   return (
     <Shell
@@ -57,11 +30,9 @@ export default function App() {
       navigate={navigate}
       active={confirmedActive}
       datasets={catalog.datasets}
-      datasetId={selectedDataset}
-      selectDataset={setDatasetId}
-      configurationLocked={
-        active || execution.busy || Boolean(execution.pending)
-      }
+      datasetId={datasetId}
+      selectDataset={selectDataset}
+      configurationLocked={configurationLocked}
       workspaceStatus={<WorkspaceStatus health={health} />}
     >
       <div className="stack">
@@ -88,9 +59,9 @@ export default function App() {
           active={active}
           history={history}
           selected={selected}
-          select={setSelected}
-          datasetId={selectedDataset}
-          selectDataset={setDatasetId}
+          select={selectWorker}
+          datasetId={datasetId}
+          selectDataset={selectDataset}
           health={health}
           jobVerified={jobVerified}
         />
@@ -100,22 +71,7 @@ export default function App() {
             experiments are never pooled into one scaling curve. Unavailable
             metrics are not zero.
           </span>
-          <button
-            type="button"
-            className="back-to-top"
-            onClick={() => {
-              document
-                .getElementById('main-content')
-                ?.focus({ preventScroll: true });
-              window.scrollTo({
-                top: 0,
-                behavior: window.matchMedia('(prefers-reduced-motion: reduce)')
-                  .matches
-                  ? 'auto'
-                  : 'smooth',
-              });
-            }}
-          >
+          <button type="button" className="back-to-top" onClick={backToTop}>
             Back to top ↑
           </button>
         </p>
