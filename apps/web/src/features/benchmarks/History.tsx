@@ -1,26 +1,36 @@
 import { useState } from 'react';
 
-import { type HistoryItem } from '@/api/contracts';
+import { type HistoryItem, type WorkerCount } from '@/api/contracts';
+import Select from '@/components/Select';
 
 import { timestamp } from './format';
+import RecentExperiments from './RecentExperiments';
 
 interface Props {
   readonly items: readonly HistoryItem[];
   readonly selectedId: string;
   readonly select: (id: string) => void;
   readonly loading: boolean;
+  readonly initialLoading: boolean;
   readonly offset: number;
   readonly setOffset: (offset: number) => void;
   readonly compact?: boolean;
+  readonly worker?: WorkerCount;
+  readonly error: string;
+  readonly retry: () => void;
 }
 export default function History({
   items,
   selectedId,
   select,
   loading,
+  initialLoading,
   offset,
   setOffset,
   compact = false,
+  worker = 4,
+  error,
+  retry,
 }: Props) {
   const [search, setSearch] = useState('');
   const [state, setState] = useState('all');
@@ -33,13 +43,20 @@ export default function History({
   );
   const shown = compact ? filtered.slice(0, 5) : filtered;
   return (
-    <section className="card history-card" aria-labelledby="history-heading">
+    <section
+      className={`card history-card${compact ? ' compact' : ''}`}
+      aria-labelledby="history-heading"
+    >
       <div className="panel-heading">
         <div>
           <h2 id="history-heading">
             {compact ? 'Recent experiments' : 'Recorded experiments'}
           </h2>
-          <p>Persisted on the local API · newest first</p>
+          <p>
+            {compact
+              ? `Saved comparisons · showing ${worker}-worker results`
+              : 'Persisted on the local API · newest first'}
+          </p>
         </div>
         {compact && <a href="#history">View all ↗</a>}
       </div>
@@ -55,51 +72,78 @@ export default function History({
               placeholder="Dataset or job ID"
             />
           </label>
-          <label>
-            <span>Status</span>
-            <select
+          <div className="form-field">
+            <label htmlFor="history-state">Status</label>
+            <Select
+              id="history-state"
+              label="Status"
               value={state}
-              onChange={(event) => setState(event.target.value)}
-            >
-              <option value="all">All terminal states</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="FAILED">Failed</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </label>
+              onChange={setState}
+              options={[
+                { value: 'all', label: 'All terminal states' },
+                { value: 'COMPLETED', label: 'Completed' },
+                { value: 'FAILED', label: 'Failed' },
+                { value: 'CANCELLED', label: 'Cancelled' },
+              ]}
+            />
+          </div>
         </div>
       )}
-      {loading ? (
+      {error && (
+        <p className="request-error">
+          {error}{' '}
+          <button type="button" onClick={retry} disabled={loading}>
+            Retry history
+          </button>
+        </p>
+      )}
+      {initialLoading ? (
         <output className="empty">Loading saved experiments…</output>
       ) : (
         <>
-          <div className="history-records">
-            {shown.map(({ job }) => (
-              <button
-                className="history-record"
-                type="button"
-                key={job.id}
-                aria-pressed={selectedId === job.id}
-                onClick={() => select(job.id)}
-              >
-                <span>
-                  <strong>{job.request.dataset_id}</strong>
-                  <small className="mono">{job.id.slice(0, 8)}</small>
-                </span>
-                <span>
-                  <strong>Resize + grayscale</strong>
-                  <small>
-                    {job.input_count} images · {timestamp(job.created_at)}
-                  </small>
-                </span>
-                <span className="mono">1/2/4/8W</span>
-                <span className={`state ${job.state.toLowerCase()}`}>
-                  {job.state}
-                </span>
-              </button>
-            ))}
-          </div>
-          {shown.length === 0 && (
+          {compact && shown.length > 0 && (
+            <RecentExperiments
+              items={shown}
+              worker={worker}
+              selectedId={selectedId}
+              select={select}
+            />
+          )}
+          {!compact && (
+            <div className="history-records">
+              <div className="history-record-head" aria-hidden="true">
+                <span>Run</span>
+                <span>Operation / accepted</span>
+                <span>Workers</span>
+                <span>Status</span>
+              </div>
+              {shown.map(({ job }) => (
+                <button
+                  className="history-record"
+                  type="button"
+                  key={job.id}
+                  aria-pressed={selectedId === job.id}
+                  onClick={() => select(job.id)}
+                >
+                  <span>
+                    <strong>{job.request.dataset_id}</strong>
+                    <small className="mono">{job.id.slice(0, 8)}</small>
+                  </span>
+                  <span>
+                    <strong>Resize + grayscale</strong>
+                    <small>
+                      {job.input_count} images · {timestamp(job.created_at)}
+                    </small>
+                  </span>
+                  <span className="mono">1/2/4/8W</span>
+                  <span className={`state ${job.state.toLowerCase()}`}>
+                    {job.state}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {shown.length === 0 && !error && (
             <p className="empty">
               {items.length
                 ? 'No matching records on this page.'

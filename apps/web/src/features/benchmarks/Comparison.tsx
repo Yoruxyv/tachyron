@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
 
 import type { WorkerCount } from '@/api/contracts';
+import Select from '@/components/Select';
 
-import Results, { Kpis } from './Results';
+import Results from './Results';
+import HistoryInspector from './HistoryInspector';
 import type { useHistory } from './useHistory';
 
 interface Props {
@@ -10,6 +12,7 @@ interface Props {
   readonly selected: WorkerCount;
   readonly select: (workers: WorkerCount) => void;
   readonly children: ReactNode;
+  readonly historyView?: boolean;
 }
 
 export default function Comparison({
@@ -17,24 +20,31 @@ export default function Comparison({
   selected,
   select,
   children,
+  historyView = false,
 }: Props) {
   return (
     <>
       <div className="history-toolbar">
-        <label>
-          <span>Saved comparison</span>
-          <select
+        <div className="form-field">
+          <label htmlFor="saved-comparison">Saved comparison</label>
+          <Select
+            id="saved-comparison"
+            label="Saved comparison"
             value={history.selectedId}
-            onChange={(event) => history.select(event.target.value)}
-          >
-            <option value="">Choose an experiment</option>
-            {history.items.map(({ job }) => (
-              <option key={job.id} value={job.id}>
-                {job.request.dataset_id} · {job.id.slice(0, 8)} · {job.state}
-              </option>
-            ))}
-          </select>
-        </label>
+            placeholder="Choose an experiment"
+            disabled={history.items.length === 0}
+            onChange={history.select}
+            options={history.items.map(({ job }) => ({
+              value: job.id,
+              label:
+                job.request.dataset_id +
+                ' · ' +
+                job.id.slice(0, 8) +
+                ' · ' +
+                job.state,
+            }))}
+          />
+        </div>
         <button
           type="button"
           onClick={history.reload}
@@ -43,19 +53,33 @@ export default function Comparison({
           Refresh history
         </button>
       </div>
-      {children}
-      {history.detailLoading && <output>Loading experiment evidence…</output>}
-      {history.detailError && (
-        <p role="alert" className="notice">
+      {history.error && !historyView && (
+        <p className="request-error">
+          {history.error}{' '}
+          <button type="button" onClick={history.reload}>
+            Retry history
+          </button>
+        </p>
+      )}
+      {history.detailError && history.detailError !== history.error && (
+        <p className="request-error">
           {history.detailError}{' '}
           <button type="button" onClick={history.reload}>
             Retry evidence
           </button>
         </p>
       )}
-      <Kpis detail={history.detail} selected={selected} />
+      {history.detailLoading && !history.detail && !history.detailError && (
+        <output>Loading experiment evidence…</output>
+      )}
+      {historyView ? (
+        <div className="history-screen">
+          {children}
+          <HistoryInspector detail={history.detail} selected={selected} />
+        </div>
+      ) : null}
       <Results detail={history.detail} selected={selected} select={select} />
-      {history.detail && (
+      {!historyView && history.detail && (
         <a
           href={`/api/benchmarks/${encodeURIComponent(history.detail.job.id)}`}
           target="_blank"

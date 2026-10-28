@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import type { Dataset } from '@/api/contracts';
+import DatasetSelect from '@/features/benchmarks/DatasetSelect';
+
 import Icon from './Icon';
+import Select from './Select';
 import { views, type View } from './useNavigation';
 
 interface Props {
@@ -8,8 +12,23 @@ interface Props {
   readonly navigate: (view: View) => void;
   readonly active: boolean;
   readonly children: ReactNode;
+  readonly datasets: Dataset[];
+  readonly datasetId: string;
+  readonly selectDataset: (id: string) => void;
+  readonly configurationLocked: boolean;
+  readonly workspaceStatus: ReactNode;
 }
-export default function Shell({ view, navigate, active, children }: Props) {
+export default function Shell({
+  view,
+  navigate,
+  active,
+  children,
+  datasets,
+  datasetId,
+  selectDataset,
+  configurationLocked,
+  workspaceStatus,
+}: Props) {
   const main = useRef<HTMLElement>(null);
   const previous = useRef(view);
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -24,6 +43,7 @@ export default function Shell({ view, navigate, active, children }: Props) {
   }, [view]);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
+      if (document.querySelector('dialog[open]')) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         navigate('history');
@@ -74,10 +94,13 @@ export default function Shell({ view, navigate, active, children }: Props) {
               d="M9 12H29M17 12V26M10 26V21M24 20V26M28 17V26"
               stroke="#f1f3f5"
               strokeWidth="2.1"
+              strokeLinecap="square"
             />
           </svg>
-          <span>
-            <strong>tachyron.</strong>
+          <span className="brand-copy">
+            <strong>
+              tachyron<span className="brand-period">.</span>
+            </strong>
             <small>PERFORMANCE LAB</small>
           </span>
         </a>
@@ -111,15 +134,11 @@ export default function Shell({ view, navigate, active, children }: Props) {
             </a>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <strong>Single-host workspace</strong>
-          <p>Measured backend results</p>
-          <span>◉ &nbsp; Local execution</span>
-        </div>
+        {workspaceStatus}
       </aside>
       <div className="main-wrapper">
         <header className="top-header">
-          <div>
+          <div className="header-title">
             <h1>{meta?.title}</h1>
             <p>{meta?.subtitle}</p>
           </div>
@@ -127,17 +146,62 @@ export default function Shell({ view, navigate, active, children }: Props) {
             <button
               className="search-button"
               type="button"
+              aria-label="Search benchmark history"
               onClick={() => navigate('history')}
             >
-              ⌕ &nbsp; Search runs… <kbd>Ctrl K</kbd>
+              <svg
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                aria-hidden="true"
+              >
+                <circle cx="10.5" cy="10.5" r="7.5" />
+                <path d="m16 16 5 5" />
+              </svg>
+              <span>Search runs...</span>
+              <kbd>Ctrl K</kbd>
             </button>
+            <div className="header-selects">
+              <DatasetSelect
+                datasets={datasets}
+                value={datasetId}
+                onChange={selectDataset}
+                label="Select benchmark dataset"
+                disabled={configurationLocked}
+                header
+              />
+              <span className="pill-separator" aria-hidden="true" />
+              <Select
+                label="Select processing operation"
+                value="resize-grayscale-v1"
+                onChange={() => undefined}
+                header
+                options={[
+                  { value: 'resize-grayscale-v1', label: 'Resize + Gray' },
+                ]}
+              />
+            </div>
             <button
               type="button"
               className="primary"
               aria-label="New experiment"
               onClick={() => navigate('experiments')}
             >
-              ＋ <span>New experiment</span>
+              <svg
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                aria-hidden="true"
+              >
+                <path d="M12 4v16M4 12h16" />
+              </svg>
+              <span>New experiment</span>
             </button>
           </div>
         </header>

@@ -5,6 +5,7 @@ import Icon from '@/components/Icon';
 import ChartBoundary from '@/components/ChartBoundary';
 
 import { chartDefinitions } from './chartData';
+import ChartPanel from './ChartPanel';
 import { metric, timestamp } from './format';
 import WorkerSelector from './WorkerSelector';
 
@@ -29,25 +30,32 @@ export function Kpis({ detail, selected }: Pick<Props, 'detail' | 'selected'>) {
     {
       icon: 'time',
       label: 'Execution time',
-      value: metric(summary?.elapsed?.mean, ' s'),
+      value: metric(summary?.elapsed?.mean, '', 1),
+      unit:
+        summary?.elapsed?.mean === null || summary?.elapsed?.mean === undefined
+          ? ''
+          : ' s',
       note: `Mean of ${summary?.measured_count ?? 0} measured runs`,
     },
     {
       icon: 'speed',
       label: 'Parallel speedup',
-      value: metric(summary?.speedup, '×'),
+      value: metric(summary?.speedup, '×', 2, 2),
+      unit: '',
       note: 'Against the 1-worker process pool',
     },
     {
       icon: 'cpu',
       label: 'CPU utilization',
       value: metric(summary?.cpu_mean_core_percent, '%'),
+      unit: '',
       note: '% of one logical core · sampled tree',
     },
     {
       icon: 'efficiency',
       label: 'Scaling efficiency',
-      value: metric(summary?.efficiency_percent, '%'),
+      value: metric(summary?.efficiency_percent, '%', 1),
+      unit: '',
       note: `Relative to ideal ${selected}× scaling`,
     },
   ] as const;
@@ -59,7 +67,10 @@ export function Kpis({ detail, selected }: Pick<Props, 'detail' | 'selected'>) {
             <Icon name={item.icon} />
             {item.label}
           </h2>
-          <div className="kpi-number">{item.value}</div>
+          <div className="kpi-number">
+            {item.value}
+            <span>{item.unit}</span>
+          </div>
           <p>{item.note}</p>
         </section>
       ))}
@@ -165,27 +176,30 @@ export default function Results({
   ) : null;
   return (
     <>
-      <div className="results-toolbar">
-        <div>
-          <p className="eyebrow">
-            {detail
-              ? `${detail.job.request.dataset_id} · ${detail.job.input_count} images`
-              : 'Measured scaling'}
-          </p>
-          <p className="fine-print">
-            {detail
-              ? `Accepted ${timestamp(detail.job.created_at)} · ${detail.job.request.width} × ${detail.job.request.height} px`
-              : 'Choose a saved experiment or run your first benchmark.'}
-          </p>
+      {!overview && (
+        <div className="results-toolbar">
+          <div>
+            <p className="eyebrow">
+              {detail
+                ? `${detail.job.request.dataset_id} · ${detail.job.input_count} images`
+                : 'Measured scaling'}
+            </p>
+            <p className="fine-print">
+              {detail
+                ? `Accepted ${timestamp(detail.job.created_at)} · ${detail.job.request.width} × ${detail.job.request.height} px`
+                : 'Choose a saved experiment or run your first benchmark.'}
+            </p>
+          </div>
+          <WorkerSelector value={selected} onChange={select} />
         </div>
-        <WorkerSelector value={selected} onChange={select} />
-      </div>
+      )}
       {detail?.job.request.tiny && (
         <p className="notice">
           Tiny functional test. These timings verify functionality and are not
           representative performance evidence.
         </p>
       )}
+      {!overview && measurementTable}
       {valid ? (
         <ChartBoundary>
           <Suspense fallback={<output>Loading charts…</output>}>
@@ -200,25 +214,26 @@ export default function Results({
       ) : (
         <div className={overview ? 'overview-charts' : 'comparison-charts'}>
           {definitions.map((definition) => (
-            <section className="card chart-card" key={definition.id}>
-              <h2>{definition.title}</h2>
-              <p>{definition.note}</p>
-              <div className="chart-empty">
+            <ChartPanel
+              key={definition.id}
+              kind={definition.id}
+              selected={selected}
+              summaries={[]}
+              overview={overview}
+            >
+              <div className="chart-canvas chart-empty">
                 No complete measurements yet<span>{definition.unit}</span>
               </div>
-            </section>
+            </ChartPanel>
           ))}
         </div>
       )}
-      {valid &&
-        (overview ? (
-          <details className="results-details">
-            <summary>Measured values and sample spread</summary>
-            {measurementTable}
-          </details>
-        ) : (
-          measurementTable
-        ))}
+      {valid && overview && (
+        <details className="results-details">
+          <summary>Measured values and sample spread</summary>
+          {measurementTable}
+        </details>
+      )}
       {detail && !valid && (
         <p className="notice">
           {detail.job.state}: complete comparison metrics are unavailable.

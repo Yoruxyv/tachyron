@@ -1,15 +1,17 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '@/App';
 import * as api from '@/api/benchmarks';
+import * as healthApi from '@/api/health';
 import JobForm from '@/features/benchmarks/JobForm';
 import JobProgress from '@/features/benchmarks/JobProgress';
 import Results from '@/features/benchmarks/Results';
 import ApiStatus from '@/features/benchmarks/ApiStatus';
+import { useApiHealth } from '@/features/benchmarks/useApiHealth';
 
-import { dataset, detail, job } from './fixtures';
+import { dataset, detail, job, request } from './fixtures';
 
 vi.mock('@/features/benchmarks/Charts', () => ({
   default: () => <p>Charts loaded</p>,
@@ -20,9 +22,224 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/');
   vi.spyOn(api, 'getDatasets').mockResolvedValue([dataset]);
   vi.spyOn(api, 'getHistory').mockResolvedValue([]);
+  vi.spyOn(healthApi, 'getHealth').mockResolvedValue({ status: 'ok' });
 });
 
+function ApiStatusHarness() {
+  const health = useApiHealth();
+  return <ApiStatus health={health} />;
+}
+
 describe('dashboard behavior', () => {
+  it('consolidates identical history and evidence errors while retaining separate failures', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/#history');
+    vi.mocked(api.getHistory).mockResolvedValue([
+      { job: detail.job, summaries: detail.result?.summaries ?? null },
+    ]);
+    vi.spyOn(api, 'getDetail').mockResolvedValue(detail);
+    render(<App />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Saved comparison' }),
+      ).toHaveValue(detail.job.id),
+    );
+    vi.mocked(api.getHistory).mockRejectedValue(
+      new api.ApiError('History connection unavailable'),
+    );
+    vi.mocked(api.getDetail).mockRejectedValue(
+      new api.ApiError('History connection unavailable'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Refresh history' }));
+    expect(
+      await screen.findAllByText('History connection unavailable'),
+    ).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Retry history' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Retry evidence' }),
+    ).not.toBeInTheDocument();
+    vi.mocked(api.getDetail).mockRejectedValue(
+      new api.ApiError('Evidence record unavailable'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Retry history' }));
+    expect(
+      await screen.findByText('Evidence record unavailable'),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Retry evidence' }),
+    ).toBeVisible();
+    expect(screen.getByText('History connection unavailable')).toBeVisible();
+  });
+  it.each([false, true])(
+    'returns focus to the top and honors reduced motion (%s)',
+    async (reduced) => {
+      vi.stubGlobal(
+        'matchMedia',
+        vi.fn(() => ({ matches: reduced })),
+      );
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(screen.getByRole('button', { name: 'Back to top ↑' }));
+      expect(window.scrollTo).toHaveBeenLastCalledWith({
+        top: 0,
+        behavior: reduced ? 'auto' : 'smooth',
+      });
+      expect(screen.getByRole('main')).toHaveFocus();
+    },
+  );
+  it('uses shared liveness, registry and recovered job state in the compact sidebar', async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem(
+      'tachyron.active.v1',
+      JSON.stringify({ id: job().id }),
+    );
+    vi.spyOn(api, 'getJob').mockResolvedValue(job('RUNNING'));
+    render(<App />);
+    const sidebar = screen.getByRole('complementary');
+    expect(await within(sidebar).findByText('API online')).toBeVisible();
+    expect(
+      within(sidebar).queryByText('Liveness only'),
+    ).not.toBeInTheDocument();
+    expect(
+      within(sidebar).queryByText(/registered dataset/),
+    ).not.toBeInTheDocument();
+    expect(healthApi.getHealth).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('link', { name: 'API Tests' }));
+    expect(
+      within(screen.getByRole('main')).getByText('API online'),
+    ).toBeVisible();
+    expect(healthApi.getHealth).toHaveBeenCalledTimes(1);
+    vi.mocked(healthApi.getHealth).mockRejectedValueOnce(
+      new Error('private connection details'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Check connection' }));
+    expect(await within(sidebar).findByText('API offline')).toBeVisible();
+    expect(
+      within(sidebar).queryByText(/registered dataset/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('private connection details'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('distinguishes an unavailable registry from an empty registered dataset list', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getDatasets).mockRejectedValueOnce(
+      new api.ApiError('Registry unavailable', 503),
+    );
+    render(<App />);
+    await screen.findByText('Registry unavailable');
+    expect(
+      within(screen.getByRole('complementary')).queryByText(
+        /registered dataset/,
+      ),
+    ).not.toBeInTheDocument();
+
+    vi.mocked(api.getDatasets).mockResolvedValue([]);
+    await user.click(screen.getByRole('button', { name: 'Retry datasets' }));
+    expect(await screen.findByText(/No datasets registered/)).toBeVisible();
+  });
+  it('shares registered dataset selection between header, quick form and experiment navigation', async () => {
+    const user = userEvent.setup();
+    const second = { ...dataset, dataset_id: 'second-images' };
+    vi.mocked(api.getDatasets).mockResolvedValue([dataset, second]);
+    render(<App />);
+    const header = await screen.findByRole('combobox', {
+      name: 'Select benchmark dataset',
+    });
+    await waitFor(() => expect(header).toHaveValue(dataset.dataset_id));
+    await user.click(header);
+    await user.click(screen.getByRole('option', { name: second.dataset_id }));
+    expect(screen.getByRole('combobox', { name: 'Dataset' })).toHaveValue(
+      second.dataset_id,
+    );
+    await user.click(screen.getByRole('button', { name: 'New experiment' }));
+    const form = screen.getByRole('combobox', { name: 'Dataset' });
+    expect(form).toHaveValue(second.dataset_id);
+    await user.click(form);
+    await user.click(
+      screen.getByRole('option', { name: new RegExp(dataset.dataset_id) }),
+    );
+    expect(header).toHaveValue(dataset.dataset_id);
+    await user.click(
+      screen.getByRole('combobox', { name: 'Select processing operation' }),
+    );
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    expect(
+      screen.getByRole('option', { name: 'Resize + Gray' }),
+    ).toHaveAttribute('aria-selected', 'true');
+    await user.keyboard('{Escape}');
+  });
+
+  it('locks both dataset controls to an unconfirmed recovered submission', async () => {
+    sessionStorage.setItem(
+      'tachyron.active.v1',
+      JSON.stringify({ key: 'recover-parity', request }),
+    );
+    render(<App />);
+    const header = await screen.findByRole('combobox', {
+      name: 'Select benchmark dataset',
+    });
+    await waitFor(() => expect(header).toHaveValue(request.dataset_id));
+    expect(header).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Dataset' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Retry same submission' }),
+    ).toBeEnabled();
+  });
+
+  it('reopens compact benchmark settings after invalid hidden dimensions without submitting', async () => {
+    const user = userEvent.setup();
+    const submit = vi.spyOn(api, 'startJob');
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Dataset' })).toHaveValue(
+        dataset.dataset_id,
+      ),
+    );
+    const disclosure = screen.getByText('Benchmark settings');
+    await user.click(disclosure);
+    await user.clear(screen.getByLabelText('Width (px)'));
+    await user.type(screen.getByLabelText('Width (px)'), '4097');
+    await user.click(disclosure);
+    expect(screen.getByLabelText('Width (px)')).not.toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Run experiment/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'dimensions from 1 to 4096',
+    );
+    expect(screen.getByLabelText('Width (px)')).toBeVisible();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('shows the overview history as a selectable table and never presents failed metrics as success', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getHistory).mockResolvedValue([
+      { job: job('FAILED'), summaries: detail.result?.summaries ?? null },
+    ]);
+    vi.spyOn(api, 'getDetail').mockResolvedValue({
+      ...detail,
+      job: job('FAILED'),
+    });
+    render(<App />);
+    const table = await screen.findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((el) => el.textContent),
+    ).toEqual(['Run', 'Operation', 'Workers', 'Time', 'Speedup', 'Status']);
+    expect(within(table).getAllByText('Unavailable')).toHaveLength(2);
+    expect(within(table).getByText('failed')).toBeVisible();
+    await user.click(
+      within(table).getByRole('button', { name: /test-images/ }),
+    );
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Scaling comparison',
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText('Measured results')).not.toBeInTheDocument();
+  });
   it('retains saved evidence and worker inspection across view changes and focuses history search', async () => {
     const user = userEvent.setup();
     vi.mocked(api.getHistory).mockResolvedValue([
@@ -70,14 +287,20 @@ describe('dashboard behavior', () => {
       new api.ApiError('History unavailable', 503),
     );
     render(<App />);
-    expect(await screen.findByText('Datasets unavailable')).toHaveAttribute(
-      'role',
-      'alert',
-    );
-    expect(await screen.findByText('History unavailable')).toHaveAttribute(
-      'role',
-      'alert',
-    );
+    await screen.findByText('Datasets unavailable');
+    expect(screen.getByText('Datasets unavailable')).toBeVisible();
+    expect(screen.getByText('History unavailable')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', {
+        name: 'API requests need attention',
+      }),
+    ).toBeVisible();
+    expect(screen.queryAllByRole('alert')).toHaveLength(0);
+    expect(
+      screen.getByText(
+        'An API request failed. Recovery actions are available.',
+      ),
+    ).toHaveAttribute('aria-live', 'polite');
     vi.mocked(api.getDatasets).mockResolvedValue([]);
     await user.click(screen.getByRole('button', { name: 'Retry datasets' }));
     expect(await screen.findByText(/No datasets registered/)).toBeVisible();
@@ -138,6 +361,8 @@ describe('dashboard behavior', () => {
     render(
       <JobForm
         datasets={[dataset]}
+        datasetId={dataset.dataset_id}
+        selectDataset={vi.fn()}
         disabled={false}
         pending={undefined}
         submit={submit}
@@ -165,6 +390,8 @@ describe('dashboard behavior', () => {
         datasets={[
           { ...dataset, error_code: 'dataset_unavailable', input_count: null },
         ]}
+        datasetId=""
+        selectDataset={vi.fn()}
         disabled={false}
         pending={undefined}
         submit={vi.fn()}
@@ -173,7 +400,12 @@ describe('dashboard behavior', () => {
     expect(
       screen.getByRole('button', { name: /Run experiment/ }),
     ).toBeDisabled();
-    expect(screen.getByRole('option', { name: /unavailable/ })).toBeDisabled();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('combobox', { name: 'Dataset' }));
+    expect(screen.getByRole('option', { name: /unavailable/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 
   it('supports keyboard navigation, focus transfer, and real job acceptance', async () => {
@@ -242,13 +474,14 @@ describe('dashboard behavior', () => {
   });
 
   it('keeps health errors safe, permits retries, and aborts on unmount', async () => {
+    vi.mocked(healthApi.getHealth).mockRestore();
     const user = userEvent.setup();
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response('secret traceback', { status: 500 }))
       .mockResolvedValueOnce(Response.json({ status: 'ok' }));
     vi.stubGlobal('fetch', fetchMock);
-    const { unmount } = render(<ApiStatus />);
+    const { unmount } = render(<ApiStatusHarness />);
     await user.click(screen.getByRole('button', { name: 'Check connection' }));
     expect(await screen.findByText(/API unavailable/)).toBeVisible();
     expect(screen.queryByText(/secret traceback/)).not.toBeInTheDocument();
