@@ -1,7 +1,7 @@
 # Jobs and persistent history
 
-Phase 05 exposes the existing benchmark experiment over FastAPI. The frontend
-remains the health-check shell. Each job runs the complete **1/2/4/8-worker
+Phase 05 exposes the existing benchmark experiment over FastAPI. The
+[Phase 06 dashboard](dashboard.md) consumes these contracts. Each job runs the complete **1/2/4/8-worker
 comparison**, using the same `run_experiment`, image transformations, timing,
 provenance and statistics as `tachyron-benchmark run`. This preserves the merged
 core instead of introducing the older blueprint's separate single-worker API.

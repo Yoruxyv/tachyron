@@ -24,7 +24,10 @@
     "src",
     "tests",
     "scripts/**/*.mjs",
+    "scripts/**/*.js",
     "vite.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "e2e"
   ]
 }

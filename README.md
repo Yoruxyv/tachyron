@@ -3,11 +3,11 @@
 Reproducible parallel image-processing benchmarks on a single machine.
 
 The Python package provides deterministic sequential and spawn-process batch
-image processing through a minimal CLI. The web application remains an accessible
-shell with a FastAPI liveness check. The benchmark CLI measures real pool scaling
+image processing through a minimal CLI. The React dashboard configures real jobs,
+shows batch progress, and compares persisted measurements. The benchmark CLI measures real pool scaling
 and exports raw runs, sampled CPU/RSS, and comparison statistics. The API accepts
-bounded background experiments and retains SQLite history; dashboard charts are
-not implemented.
+bounded background experiments and retains SQLite history. Six charts and an
+accessible results table explain time, image throughput, CPU, RSS, speedup and efficiency.
 
 ## Requirements
 
@@ -34,13 +34,15 @@ npm --prefix apps/web ci
 npm --prefix apps/web run dev
 ```
 
-Open [the application](http://127.0.0.1:5173) and select **Check connection**.
+Open [the application](http://127.0.0.1:5173). Register a dataset as described in
+[dashboard setup and tooling](docs/dashboard.md), then configure an experiment.
+**API Tests → Check connection** checks process liveness.
 [GET /health](http://127.0.0.1:8000/health) returns `{"status":"ok"}`.
 This reports process liveness only; it says nothing about processing readiness.
 
-Both development servers bind to loopback. Vite proxies `/health` to the local
+Both development servers bind to loopback. Vite proxies `/api` and `/health` to the local
 API, so no permissive CORS policy or browser environment secrets are needed.
-Requests time out after five seconds; failures show a safe message and allow retry.
+API requests time out after ten seconds (five for liveness); failures show a safe message and allow retry.
 Stop either server with Ctrl+C.
 
 For an API-only environment, install `--extra api` instead of `--extra dev`.
