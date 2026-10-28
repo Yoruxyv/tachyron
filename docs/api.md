@@ -1,7 +1,7 @@
 # Jobs and persistent history
 
-Phase 05 exposes the existing benchmark experiment over FastAPI. The
-[Phase 06 dashboard](dashboard.md) consumes these contracts. Each job runs the complete **1/2/4/8-worker
+FastAPI exposes the existing benchmark experiment. The
+[dashboard](dashboard.md) consumes these contracts. Each job runs the complete **1/2/4/8-worker
 comparison**, using the same `run_experiment`, image transformations, timing,
 provenance and statistics as `tachyron-benchmark run`. This preserves the merged
 core instead of introducing the older blueprint's separate single-worker API.
@@ -176,5 +176,5 @@ Tests use real tiny images for API/core agreement, repeated polling under a bloc
 batch, saturation, retries, cancellation, failures, persistence, migrations, startup
 cleanup and shutdown cancellation. Separate marked integration tests use actual
 1/2/4/8 spawn pools and an abrupt subprocess-owner crash. Existing CI already runs
-all backend tests on Linux/Windows and Python 3.11/3.13; no gate changes are required.
-Local commands and their actual results are reported with the Phase 05 delivery.
+all backend tests on Linux/Windows and Python 3.11–3.14.
+See the [quality guide](quality.md#local-commands) for validation commands.

@@ -1,7 +1,7 @@
 # React dashboard and frontend tooling
 
-Phase 06 implements the final `tachyron_final_.html` visual direction as a real
-React/TypeScript dashboard. It uses the existing Vite, Tailwind v4, strict
+The React/TypeScript dashboard configures real image-processing benchmarks and
+compares saved measurements. It uses the existing Vite, Tailwind v4, strict
 TypeScript, ESLint, and Prettier configuration. The API described in
 [jobs and history](api.md) remains authoritative.
 
@@ -95,7 +95,10 @@ reconstruction competes with the authoritative backend exports.
 
 | Location                                             | Responsibility                                                               |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `apps/web/src/App.tsx`                               | Compose views and share current selection                                    |
+| `apps/web/src/App.tsx`                               | Own lifecycle hooks, focus transfer and persistent worker inspection         |
+| `src/features/benchmarks/BenchmarkNotices.tsx`       | Dataset availability, request errors and job recovery announcements          |
+| `src/features/benchmarks/BenchmarkWorkspace.tsx`     | Compose view layouts without owning requests or persistent selection         |
+| `src/features/benchmarks/Comparison.tsx`             | Saved-evidence selection, loading/failure states and measured comparisons    |
 | `src/api/contracts.ts`, `decode.ts`, `benchmarks.ts` | Consumed API types, runtime boundary validation, sanitized HTTP transport    |
 | `src/components/`                                    | Shell, hash navigation, icons, chart failure boundary                        |
 | `src/features/benchmarks/useJob.ts`                  | Submission identity/recovery, status lifecycle, cancellation and cleanup     |
@@ -244,8 +247,7 @@ label. Do not substitute prototype simulations in screenshots or performance cla
 The existing **Frontend Tests** CI job runs unit coverage and this one real browser
 flow, retaining reports/screenshots for 14 days. **Frontend Quality** adds the
 verified import check. Existing required job names and aggregate dependencies stay
-the same. Full browser/platform matrices, k6 infrastructure, and Phase 07 remain
-outside this phase.
+the same. Full browser/platform matrices and k6 infrastructure remain deferred.
 
 ## Dependencies and design decisions
 
@@ -287,6 +289,3 @@ own distinct trust-boundary responsibilities; lifecycle hooks own their resource
 charts own no network calls. Keep the standalone normalizer cohesive rather than
 creating generic resolver adapters. CodeScene scores and hosted CI results still
 require their respective providers; local success does not establish those checks.
-
-See the [Phase 06 validation record](phase-06-validation.md) for actual commands,
-results, bundle measurements, audit state and remaining verification limits.

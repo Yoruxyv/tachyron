@@ -258,7 +258,7 @@ not measured network transfer or initial-route loading cost. Missing/empty build
 output is an error. Size growth is informational: there are no warning or failure
 budgets until representative application measurements justify them.
 
-Phase 06 keeps this checker unchanged. The original shell measured 221,917 raw
+The dashboard keeps this checker unchanged. The original shell measured 221,917 raw
 JavaScript bytes and 68,855 per-file gzip bytes before dashboard implementation.
 Use `bundle:check` after rebuilding for current measurements; Chart.js now occupies
 a separate chunk loaded when complete results are displayed.

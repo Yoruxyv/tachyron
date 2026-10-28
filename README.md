@@ -146,8 +146,8 @@ lint/type/tests/build checks on pull requests and pushes to `main`. Action revis
 and tool versions are pinned. The backend test matrix includes Linux and Windows.
 Prettier, Git-aware text hygiene, offline documentation links, and workflow linting
 also run in CI. External links run separately on a weekly schedule or manual trigger.
-Real spawn integration runs in both OS/Python test matrices. Playwright E2E and
-load testing remain deferred.
+Real spawn integration runs in both OS/Python test matrices. The frontend test job
+also runs a real-API Playwright flow; HTTP load testing remains deferred.
 
 `npm run build` creates `apps/web/dist/`. A future deployment must serve `/health` from
 the backend on the same origin; Vite's development proxy is not a production server.
@@ -161,7 +161,7 @@ the backend on the same origin; Vite's development proxy is not a production ser
 - `apps/server/tachyron/benchmarking/`: schedule, observation, evidence and pure statistics.
 - `apps/server/tachyron/benchmark_cli.py`: independent benchmark run/compare commands.
 - `apps/web/src/api/`: browser HTTP contract validation and cancellation.
-- `apps/web/src/App.tsx`: minimal application shell; no benchmark state or calculations.
+- `apps/web/src/App.tsx`: lifecycle composition, focus transfer, and worker inspection.
 - Root quality configuration and `.github/workflows/`: repository-wide gates.
 
 See the [contributor quality guide](docs/quality.md) for formatter ownership,

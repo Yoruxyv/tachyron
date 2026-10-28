@@ -14,6 +14,37 @@ from tachyron.api import create_app
 from tachyron.jobs.coordinator import Settings
 
 
+def prepare_dataset(root: Path) -> dict[str, Path]:
+    """Create the fixed browser-test registry inside the caller-owned workspace.
+
+    Args:
+        root: Existing temporary directory owned by the server lifespan.
+
+    Returns:
+        The browser-test identifier mapped to eight deterministic RGB PNGs.
+
+    Raises:
+        OSError: Image storage cannot be created or written.
+    """
+    dataset = root / "images"
+    dataset.mkdir()
+    for index in range(8):
+        with Image.new("RGB", (16, 12), (index * 25, 60, 90)) as image:
+            image.save(dataset / f"{index}.png")
+    return {"browser-test": dataset}
+
+
+def wait_for_owner(server: uvicorn.Server) -> None:
+    """Request cooperative shutdown when parent stdin closes or sends a byte.
+
+    Args:
+        server: Server owned by the caller; its lifespan performs actual cleanup.
+    """
+    if sys.stdin is not None:
+        sys.stdin.read(1)
+    server.should_exit = True
+
+
 def serve(port: int, *, with_test_dataset: bool, stdio_shutdown: bool) -> None:
     """Own temporary history and optionally generated test-only images.
 
@@ -27,14 +58,7 @@ def serve(port: int, *, with_test_dataset: bool, stdio_shutdown: bool) -> None:
     """
     with tempfile.TemporaryDirectory(prefix="tachyron-browser-") as directory:
         root = Path(directory)
-        datasets: dict[str, Path] = {}
-        if with_test_dataset:
-            dataset = root / "images"
-            dataset.mkdir()
-            for index in range(8):
-                with Image.new("RGB", (16, 12), (index * 25, 60, 90)) as image:
-                    image.save(dataset / f"{index}.png")
-            datasets["browser-test"] = dataset
+        datasets = prepare_dataset(root) if with_test_dataset else {}
         server = uvicorn.Server(
             uvicorn.Config(
                 create_app(Settings(datasets=datasets, data_dir=root / "history")),
@@ -44,14 +68,7 @@ def serve(port: int, *, with_test_dataset: bool, stdio_shutdown: bool) -> None:
             )
         )
         if stdio_shutdown:
-
-            def wait_for_owner() -> None:
-                """Treat closed parent stdin as a cooperative shutdown request."""
-                if sys.stdin is not None:
-                    sys.stdin.read(1)
-                server.should_exit = True
-
-            Thread(target=wait_for_owner, daemon=True).start()
+            Thread(target=wait_for_owner, args=(server,), daemon=True).start()
         server.run()
 
 

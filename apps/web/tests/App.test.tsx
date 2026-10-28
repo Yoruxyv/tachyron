@@ -23,6 +23,100 @@ beforeEach(() => {
 });
 
 describe('dashboard behavior', () => {
+  it('retains saved evidence and worker inspection across view changes and focuses history search', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getHistory).mockResolvedValue([
+      { job: detail.job, summaries: detail.result?.summaries ?? null },
+    ]);
+    vi.spyOn(api, 'getDetail').mockResolvedValue(detail);
+    render(<App />);
+    await user.click(
+      await screen.findByRole('button', { name: /test-images/ }),
+    );
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Scaling comparison',
+      }),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole('link', { name: /Open raw API evidence/ }),
+    ).toHaveAttribute('href', `/api/benchmarks/${detail.job.id}`);
+    await user.click(screen.getByRole('button', { name: /^8\s*workers$/ }));
+    await user.click(screen.getByRole('link', { name: 'History' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('searchbox', { name: 'Search runs' }),
+      ).toHaveFocus(),
+    );
+    expect(
+      screen.getByRole('combobox', { name: 'Saved comparison' }),
+    ).toHaveValue(detail.job.id);
+    expect(
+      screen.getByRole('button', { name: /^8\s*workers$/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('link', { name: 'Overview' }));
+    expect(
+      screen.getByRole('button', { name: /^8\s*workers$/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps dataset and history retries independent and exposes the empty registry', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getDatasets).mockRejectedValueOnce(
+      new api.ApiError('Datasets unavailable', 503),
+    );
+    vi.mocked(api.getHistory).mockRejectedValueOnce(
+      new api.ApiError('History unavailable', 503),
+    );
+    render(<App />);
+    expect(await screen.findByText('Datasets unavailable')).toHaveAttribute(
+      'role',
+      'alert',
+    );
+    expect(await screen.findByText('History unavailable')).toHaveAttribute(
+      'role',
+      'alert',
+    );
+    vi.mocked(api.getDatasets).mockResolvedValue([]);
+    await user.click(screen.getByRole('button', { name: 'Retry datasets' }));
+    expect(await screen.findByText(/No datasets registered/)).toBeVisible();
+    expect(screen.getByText('History unavailable')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Retry history' }));
+    await waitFor(() =>
+      expect(screen.queryByText('History unavailable')).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole('button', { name: /Run experiment/ }),
+    ).toBeDisabled();
+  });
+
+  it('recovers an active job without restarting polling on navigation and preserves cancellation announcements', async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem(
+      'tachyron.active.v1',
+      JSON.stringify({ id: job().id }),
+    );
+    const getJob = vi.spyOn(api, 'getJob').mockResolvedValue(job('RUNNING'));
+    const startJob = vi.spyOn(api, 'startJob');
+    vi.spyOn(api, 'cancelJob').mockResolvedValue(job('CANCELLED'));
+    render(<App />);
+    expect(
+      await screen.findByRole('link', { name: 'View job progress' }),
+    ).toBeVisible();
+    const pollingSignal = getJob.mock.calls[0]?.[1];
+    expect(pollingSignal).toBeDefined();
+    await user.click(screen.getByRole('link', { name: /^Experiments/ }));
+    expect(pollingSignal?.aborted).toBe(false);
+    await user.click(screen.getByRole('button', { name: 'Cancel experiment' }));
+    expect(await screen.findByText(/CANCELLED ·/)).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'View job progress' }),
+    ).not.toBeInTheDocument();
+    expect(startJob).not.toHaveBeenCalled();
+    expect(pollingSignal?.aborted).toBe(true);
+  });
+
   it('shows honest empty metrics and registered controls with no synthetic results', async () => {
     render(<App />);
     expect(

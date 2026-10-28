@@ -121,6 +121,7 @@ function collectFiles(rootDirectory) {
     return [];
   }
 
+  /** @type {string[]} */
   const files = [];
   const pendingDirectories = [rootDirectory];
 
@@ -131,22 +132,18 @@ function collectFiles(rootDirectory) {
       continue;
     }
 
-    for (const entry of fs.readdirSync(currentDirectory, {
-      withFileTypes: true,
-    })) {
-      const entryPath = path.join(currentDirectory, entry.name);
-
-      if (entry.isDirectory()) {
-        if (!ignoredDirectoryNames.has(entry.name)) {
-          pendingDirectories.push(entryPath);
-        }
-        continue;
-      }
-
-      if (entry.isFile() && isTypeScriptSource(entryPath)) {
-        files.push(entryPath);
-      }
-    }
+    const entries = fs.readdirSync(currentDirectory, { withFileTypes: true });
+    entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() && !ignoredDirectoryNames.has(entry.name),
+      )
+      .forEach((entry) =>
+        pendingDirectories.push(path.join(currentDirectory, entry.name)),
+      );
+    entries
+      .filter((entry) => entry.isFile() && isTypeScriptSource(entry.name))
+      .forEach((entry) => files.push(path.join(currentDirectory, entry.name)));
   }
 
   return files.sort();

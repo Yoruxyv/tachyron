@@ -57,6 +57,62 @@ afterEach(() => {
 });
 
 describe('import normalization CLI', () => {
+  it('scans supported sources in stable order while excluding generated files and links', () => {
+    const original = "import x from '../../api/value';\n";
+    for (const file of [
+      'src/features/z/use.tsx',
+      'src/features/a/use.cts',
+      'src/features/m/use.mts',
+    ])
+      write(file, original);
+    for (const directory of [
+      '.git',
+      '.vite-cache',
+      'coverage',
+      'dist',
+      'node_modules',
+    ])
+      write(`src/${directory}/broken.ts`, "import x from './missing';\n");
+    write('src/ignored.d.ts', "import x from './missing';\n");
+    write('src/ignored.js', "import x from './missing';\n");
+    write('external/broken.ts', "import x from './missing';\n");
+    symlinkSync(join(root, 'external'), join(root, 'src/linked'), 'junction');
+
+    const first = run('--strict');
+    expect(first.status).toBe(0);
+    expect(first.stderr).toBe('');
+    expect(first.stdout).toBe(run('--strict').stdout);
+    for (const file of [
+      'src/features/a/use.cts',
+      'src/features/m/use.mts',
+      'src/features/z/use.tsx',
+    ])
+      expect(first.stdout).toContain(file);
+    expect(first.stdout.indexOf('src/features/a/use.cts')).toBeLessThan(
+      first.stdout.indexOf('src/features/m/use.mts'),
+    );
+    expect(first.stdout.indexOf('src/features/m/use.mts')).toBeLessThan(
+      first.stdout.indexOf('src/features/z/use.tsx'),
+    );
+    expect(readFileSync(join(root, 'src/features/z/use.tsx'), 'utf8')).toBe(
+      original,
+    );
+  });
+
+  it('accepts absent scan roots and propagates a source-directory read failure', () => {
+    rmSync(join(root, 'src'), { recursive: true });
+    write('entry.ts', 'export {};\n');
+    write('tsconfig.json', JSON.stringify({ files: ['entry.ts'] }));
+    expect(run('--check', '--strict').status).toBe(0);
+    write('src', 'A file cannot be traversed as a directory.');
+    const failure = run('--write', '--strict');
+    expect(failure.status).not.toBe(0);
+    expect(failure.stderr).toMatch(/ENOTDIR/);
+    expect(readFileSync(join(root, 'src'), 'utf8')).toBe(
+      'A file cannot be traversed as a directory.',
+    );
+  });
+
   it('previews without writing, applies fixes, and remains idempotent', () => {
     const file = 'src/features/sample/use.ts';
     const original = "import { value } from '../../api/value';\n";
