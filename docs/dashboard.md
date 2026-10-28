@@ -51,8 +51,54 @@ is introduced. Keep this local API on loopback.
 
 Each submission runs the backend's complete **1/2/4/8-worker process-pool matrix**.
 The worker selector changes inspection, never the submitted execution plan.
+The header and experiment form share one registered dataset selection across views.
+Overview keeps dimensions, repetitions and tiny-test mode in **Benchmark settings**;
+validation opens that disclosure when a setting needs correction. Recent experiments
+uses a selectable table whose time and speedup columns follow the inspected worker.
+History retains the complete six-chart evidence below its record list and inspector.
+The compact sidebar shares the connection check with API Tests and displays only
+API online, API offline, or a neutral checking/unknown state. Activate it to recheck.
+Offline status includes a Troubleshoot action that opens a compact native dialog
+over the current view. It never opens automatically or changes the route. The
+dialog owns only presentation/copy feedback and reuses the shared health-check
+owner; retrying does not submit or recover a benchmark. It provides the repository-root
+PowerShell startup command, Copy, Retry connection and Close. API Tests retains its
+independent connection diagnostics and telemetry availability, without duplicate setup
+instructions. Native modal background blocking, explicit Tab boundary wrapping,
+Escape/backdrop dismissal and scroll locking preserve the dashboard. Focus returns
+to Troubleshoot, or to API status if reconnection removes the offline trigger.
+Availability does not
+establish full benchmark readiness; dataset counts and job recovery labels are omitted.
+Job verification belongs to Experiments. Retained jobs and unconfirmed submissions
+stay recoverable while offline, with prior job state explicitly unverified. Reconnecting
+the API alone never verifies a saved job or activates the navigation activity dot.
+
+API failures use one compact, dismissible bottom-right toast per unresolved failure
+episode. Dataset, history, evidence and experiment errors
+retain their own retry actions. Dismissing a toast never clears errors or submission
+identity. Retries reuse the existing request owners, cooldowns and idempotency key;
+they never replay cancellation automatically. Recovery is announced briefly through
+one polite live region. No health polling loop, notification dependency or new backend
+contract is introduced.
+Retry checks connectivity first and refreshes only stale or failed resources after
+success. Same-page history refresh keeps cached content and identical evidence
+objects, so unchanged charts, selection and scroll position survive background work.
+The action retains keyboard focus while checking; recovery moves focus to Dismiss
+only when the focused Retry action is replaced. Startup waits for the existing health
+check to classify the failure, without a notification delay or new polling loop.
 Only `resize-grayscale-v1` is offered: Lanczos resize and grayscale, with the
 established image safeguards. No unsupported prototype operation is implied.
+Select-only comboboxes use the HTML's dark menus, with compact header and full-width
+form placements. Dataset and saved-record selections stay with their existing owners.
+Operation menus contain the single supported operation. Arrow keys, Home/End,
+typeahead, Enter/Space, Escape, Tab and outside clicks are supported; focus stays on
+the trigger with `aria-activedescendant`. Menus flip or align within the viewport.
+A thin muted focus outline remains visible for keyboard users.
+The logo follows the final HTML's Inter wordmark (20px, weight 710, 1.12 line height,
+−0.065em tracking) and subtitle (9px, weight 520, 1.2 line height, 0.12em tracking),
+with a 3px gap. The 38px emblem keeps its original paths and square line caps.
+The approved mobile navigation/layout remains unchanged. A local text layer matches
+the reference mobile sidebar's transformed text rendering without shifting the logo.
 
 HTTP 202 means accepted. Progress counts completed batches, including warm-ups.
 Image counters count repeated attempts, not unique images. Cooperative cancellation
@@ -111,6 +157,14 @@ Paths beginning `src/` in this table are relative to `apps/web/`. Chart.js is lo
 as a separate production chunk when complete measurements are displayed. Network
 requests remain outside chart components, and every chart instance is destroyed on
 replacement/unmount. Chart failures leave the measured table available.
+
+The visual reference's final cascade uses a 14px root, Inter (400–700), and IBM
+Plex Mono (400–600); its earlier 13px declaration is overridden. Both font families
+load from Google Fonts with local/system fallbacks. Browser-only fixtures verify
+card geometry, table composition, shared controls, CPU values above 100%, and
+overflow at 320–1440px without introducing production sample data. Local reference
+screenshots, overlays and measurements belong in the ignored
+`apps/web/visual-parity-evidence/` directory. The reference HTML is not bundled.
 
 Use concise Google-style JSDoc descriptions and `@param`, `@returns`, `@throws`,
 and verified `@example` annotations where useful. JavaScript tooling uses specific
@@ -228,7 +282,7 @@ npm --prefix apps/web run bundle:check
 npm --prefix apps/web run test:e2e
 ```
 
-Install Chromium first as above. The single core Playwright test uses production
+Install Chromium first as above. The core Playwright test uses production
 preview on **4174** and an isolated real API on **8001**, with eight generated
 test-only PNGs, 4×3 output, `tiny: true`, one repetition, and real spawn workers.
 It verifies completion, six charts, units, selection, reload recovery and a
@@ -255,8 +309,10 @@ and any failure traces. For a GIF/video, add Playwright recording locally or rec
 the browser while running the same real workload; preserve its timestamp and tiny
 label. Do not substitute prototype simulations in screenshots or performance claims.
 
-The existing **Frontend Tests** CI job runs unit coverage and this one real browser
-flow, retaining reports/screenshots for 14 days. **Frontend Quality** adds the
+The existing **Frontend Tests** CI job runs unit coverage and browser tests,
+retaining reports/screenshots for 14 days. Additional contract-fixture tests cover
+reference geometry, dropdown layout/keyboard interaction, outage recovery and retry
+stability; these fixtures are separate from the real benchmark flow. **Frontend Quality** adds the
 verified import check. Existing required job names and aggregate dependencies stay
 the same. Full browser/platform matrices and k6 infrastructure remain deferred.
 
@@ -276,7 +332,7 @@ There is no router, global state library, UI framework, or Markdown/math depende
 
 - **IMPLEMENT:** final dark shell, restrained monochrome palette, branded emblem,
   sidebar navigation, compact header, KPI cards, responsive chart/record grids,
-  native accessible controls, real lifecycle/history, typed boundaries, documented
+  accessible custom selects, real lifecycle/history, typed boundaries, documented
   import tooling, advisory Lighthouse, and one real core browser test.
 - **KEEP:** the existing bundle checker and its informational semantics; backend
   pipeline, fixed execution matrix, numerical statistics, and exports; strict
@@ -288,11 +344,11 @@ There is no router, global state library, UI framework, or Markdown/math depende
   adoption of another project's package manifest.
 
 Intentional visual differences from the reference are truthful empty/failure
-states, fixed-matrix execution, the SD/coverage table, and native selects instead
-of the prototype's custom selects. Mobile navigation expands in normal page flow,
-avoiding a modal focus trap. Local font fallbacks preserve the typographic roles
-without a third-party font request; exact glyphs depend on installed fonts. The
-header omits unsupported global operation choices, ornamental OS chrome, and demo
+states, fixed-matrix execution, the SD/coverage table, minimal API status and toast
+notifications. Mobile navigation expands in normal page flow, avoiding a modal focus
+trap. Inter and IBM Plex Mono use the reference's Google Fonts request with local
+fallbacks when unavailable. The header omits unsupported global operation choices,
+ornamental OS chrome, and demo
 identity. These differences preserve functionality, accessibility and API truth.
 
 Review cohesion across the whole workflow: App composes; transport and validation
