@@ -1,55 +1,79 @@
-import { useEffect, useState } from 'react';
-
-import { isTerminal, type WorkerCount } from '@/api/contracts';
 import Shell from '@/components/Shell';
-import { useNavigation } from '@/components/useNavigation';
 import BenchmarkNotices from '@/features/benchmarks/BenchmarkNotices';
 import BenchmarkWorkspace from '@/features/benchmarks/BenchmarkWorkspace';
-import { useCatalog, useHistory } from '@/features/benchmarks/useHistory';
-import { useJob } from '@/features/benchmarks/useJob';
+import WorkspaceStatus from '@/features/benchmarks/WorkspaceStatus';
+import ApiNotifications from '@/features/benchmarks/ApiNotifications';
+import { useWorkspace } from '@/features/benchmarks/useWorkspace';
 
 export default function App() {
-  const { view, navigate } = useNavigation();
-  const catalog = useCatalog();
-  const execution = useJob();
-  const terminalId =
-    execution.job && isTerminal(execution.job.state) ? execution.job.id : null;
-  const history = useHistory(terminalId);
-  const [selected, setSelected] = useState<WorkerCount>(4);
-
-  useEffect(() => {
-    if (view === 'history') document.getElementById('history-search')?.focus();
-  }, [view]);
-
-  const active =
-    execution.recovering ||
-    Boolean(execution.job && !isTerminal(execution.job.state));
+  const {
+    view,
+    navigate,
+    catalog,
+    execution,
+    history,
+    health,
+    selected,
+    selectWorker,
+    datasetId,
+    selectDataset,
+    active,
+    configurationLocked,
+    jobVerified,
+    confirmedActive,
+    backToTop,
+  } = useWorkspace();
 
   return (
-    <Shell view={view} navigate={navigate} active={active}>
+    <Shell
+      view={view}
+      navigate={navigate}
+      active={confirmedActive}
+      datasets={catalog.datasets}
+      datasetId={datasetId}
+      selectDataset={selectDataset}
+      configurationLocked={configurationLocked}
+      workspaceStatus={<WorkspaceStatus health={health} />}
+    >
       <div className="stack">
+        <ApiNotifications
+          health={health}
+          catalog={catalog}
+          history={history}
+          execution={execution}
+        />
         <BenchmarkNotices
           catalog={catalog}
-          historyError={history.error}
-          retryHistory={history.reload}
           execution={execution}
           active={active}
           view={view}
+          jobVerified={jobVerified}
         />
         <BenchmarkWorkspace
           view={view}
           navigate={navigate}
           datasets={catalog.datasets}
+          datasetError={catalog.error}
+          retryDatasets={catalog.reload}
           execution={execution}
           active={active}
           history={history}
           selected={selected}
-          select={setSelected}
+          select={selectWorker}
+          datasetId={datasetId}
+          selectDataset={selectDataset}
+          health={health}
+          jobVerified={jobVerified}
         />
         <p className="methodology">
-          ◉ &nbsp; Single-host process-pool measurements. Independent
-          experiments are never pooled into one scaling curve. Unavailable
-          metrics are not zero.
+          <span>
+            ◉ &nbsp; Single-host process-pool measurements. Independent
+            experiments are never pooled into one scaling curve. Unavailable
+            metrics are not zero.
+          </span>
+          <button type="button" className="back-to-top" onClick={backToTop}>
+            Back to top ↑
+          </button>
         </p>
       </div>
     </Shell>

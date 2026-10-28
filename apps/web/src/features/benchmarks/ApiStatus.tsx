@@ -1,55 +1,111 @@
-import { useEffect, useRef, useState } from 'react';
+import type { useApiHealth } from './useApiHealth';
 
-import { getHealth } from '@/api/health';
-
-export default function ApiStatus() {
-  const [status, setStatus] = useState('Not checked');
-  const [checking, setChecking] = useState(false);
-  const request = useRef<AbortController | null>(null);
-  useEffect(() => () => request.current?.abort(), []);
-  async function check() {
-    if (request.current) return;
-    const controller = new AbortController();
-    request.current = controller;
-    setChecking(true);
-    setStatus('Checking API connection…');
-    try {
-      await getHealth(controller.signal);
-      if (!controller.signal.aborted) setStatus('API online');
-    } catch {
-      if (!controller.signal.aborted)
-        setStatus(
-          'API unavailable. Check that the local server is running, then retry.',
-        );
-    } finally {
-      request.current = null;
-      if (!controller.signal.aborted) setChecking(false);
-    }
-  }
+export default function ApiStatus({
+  health,
+}: {
+  readonly health: ReturnType<typeof useApiHealth>;
+}) {
+  const { status, checking, check } = health;
   return (
     <div className="stack">
-      <section className="card">
-        <h2>API connection</h2>
+      <section className="notice api-notice">
+        <h2>HTTP job-submission latency vs image-processing completion time</h2>
         <p>
-          Liveness does not establish benchmark readiness or available queue
-          capacity.
+          Request acceptance and image completion measure different workflows.
+          The API has no persisted HTTP load-test results. Connection checks do
+          not start image benchmarks or establish available queue capacity.
         </p>
-        <output>{status}</output>
+      </section>
+      <div className="api-connection">
+        <div>
+          <span className="eyebrow">API connection</span>
+          <output aria-live="polite">
+            {checking ? 'Checking API connection…' : status}
+          </output>
+        </div>
         <button type="button" onClick={check} disabled={checking}>
           {checking ? 'Checking…' : 'Check connection'}
         </button>
-      </section>
-      <section className="card empty">
-        <h2>Load testing unavailable</h2>
-        <p>
-          The API has no persisted HTTP load-test results. Requests/second,
-          virtual users, latency percentiles, and per-worker live activity are
-          unavailable.
-        </p>
-        <p>
-          Image throughput is shown in completed images/second in Compare.
-          Connection checks do not start image benchmarks.
-        </p>
+      </div>
+      <div className="api-metrics">
+        {[
+          ['Virtual Users', 'Concurrent HTTP clients'],
+          ['Requests / sec', 'Job-submission ingestion rate'],
+          ['HTTP Latency (Avg / p95)', 'Request acceptance latency'],
+          ['Request Error Rate', 'HTTP 429 / 503 responses'],
+        ].map(([title, note]) => (
+          <section className="card api-metric" key={title}>
+            <h2>{title}</h2>
+            <div className="api-unavailable">Unavailable</div>
+            <p className="fine-print">{note}</p>
+          </section>
+        ))}
+      </div>
+      <div className="api-charts">
+        {[
+          [
+            'Request-Submission Throughput by Virtual Users',
+            'HTTP job-enqueue rate (requests/sec)',
+          ],
+          [
+            'HTTP Ingestion Latency: Avg vs p95 (ms)',
+            'Request acceptance time by concurrency level',
+          ],
+        ].map(([title, note]) => (
+          <section className="card chart-card" key={title}>
+            <div className="panel-heading">
+              <div>
+                <h2>{title}</h2>
+                <p>{note}</p>
+              </div>
+            </div>
+            <div className="chart-empty api-chart-empty">
+              No HTTP load-test measurements available
+            </div>
+          </section>
+        ))}
+      </div>
+      <section className="card">
+        <div className="panel-heading">
+          <div>
+            <h2>Load testing unavailable</h2>
+            <p>
+              Image throughput is shown in completed images/second in Compare.
+            </p>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table>
+            <caption className="sr-only">
+              HTTP load-test telemetry availability
+            </caption>
+            <thead>
+              <tr>
+                {[
+                  'Virtual Users',
+                  'Submission Rate (req/s)',
+                  'Avg HTTP Latency',
+                  'p95 HTTP Latency',
+                  'Request Error Rate',
+                  'Queue Depth',
+                ].map((label) => (
+                  <th key={label} scope="col">
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colSpan={6} className="empty">
+                  No persisted HTTP load tests. Virtual users, latency
+                  percentiles, request rates and queue telemetry are
+                  unavailable.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { Dataset, WorkerCount } from '@/api/contracts';
+import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
 import type { View } from '@/components/useNavigation';
 
 import ApiStatus from './ApiStatus';
@@ -9,16 +9,23 @@ import JobProgress from './JobProgress';
 import Results, { Kpis } from './Results';
 import type { useHistory } from './useHistory';
 import type { useJob } from './useJob';
+import type { useApiHealth } from './useApiHealth';
 
 interface Props {
   readonly view: View;
   readonly navigate: (view: View) => void;
   readonly datasets: Dataset[];
+  readonly datasetError: string;
+  readonly retryDatasets: () => void;
   readonly execution: ReturnType<typeof useJob>;
   readonly active: boolean;
   readonly history: ReturnType<typeof useHistory>;
   readonly selected: WorkerCount;
   readonly select: (workers: WorkerCount) => void;
+  readonly datasetId: string;
+  readonly selectDataset: (id: string) => void;
+  readonly health: ReturnType<typeof useApiHealth>;
+  readonly jobVerified: boolean;
 }
 
 /**
@@ -29,18 +36,31 @@ export default function BenchmarkWorkspace({
   view,
   navigate,
   datasets,
+  datasetError,
+  retryDatasets,
   execution,
   active,
   history,
   selected,
   select,
+  datasetId,
+  selectDataset,
+  health,
+  jobVerified,
 }: Props) {
   const form = (
     <JobForm
       datasets={datasets}
+      datasetError={datasetError}
+      retryDatasets={retryDatasets}
       disabled={execution.busy || active || execution.coolingDown}
       pending={execution.pending?.request}
       submit={execution.submit}
+      datasetId={datasetId}
+      selectDataset={selectDataset}
+      compact={view === 'overview'}
+      selectedWorker={selected}
+      selectWorker={select}
     />
   );
   const records = (
@@ -52,9 +72,13 @@ export default function BenchmarkWorkspace({
         if (view === 'overview') navigate('compare');
       }}
       loading={history.loading}
+      initialLoading={history.initialLoading}
       offset={history.offset}
       setOffset={history.setOffset}
       compact={view === 'overview'}
+      worker={selected}
+      error={history.error}
+      retry={history.reload}
     />
   );
 
@@ -83,14 +107,29 @@ export default function BenchmarkWorkspace({
           job={execution.job}
           busy={execution.busy}
           cancel={execution.cancel}
+          verified={jobVerified}
+          recovering={execution.recovering}
+          pending={Boolean(execution.pending)}
+          error={execution.error}
+          retryStatus={
+            execution.recovering ||
+            (execution.job && !isTerminal(execution.job.state))
+              ? execution.resume
+              : undefined
+          }
         />
       </div>
     );
 
-  if (view === 'api') return <ApiStatus />;
+  if (view === 'api') return <ApiStatus health={health} />;
 
   return (
-    <Comparison history={history} selected={selected} select={select}>
+    <Comparison
+      history={history}
+      selected={selected}
+      select={select}
+      historyView={view === 'history'}
+    >
       {view === 'history' && records}
     </Comparison>
   );

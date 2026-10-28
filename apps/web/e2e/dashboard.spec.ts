@@ -12,7 +12,8 @@ test('runs the real tiny 1/2/4/8-worker comparison and restores saved evidence',
 }, testInfo) => {
   const resize = await controlResizeDelivery(page);
   await page.goto('/#experiments');
-  await expect(page.getByLabel('Dataset', { exact: true })).toHaveValue(
+  await expect(page.getByLabel('Dataset', { exact: true })).toHaveJSProperty(
+    'value',
     'browser-test',
   );
   await page.getByLabel('Width (px)').fill('4');

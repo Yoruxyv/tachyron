@@ -8,6 +8,89 @@ import { useHistory } from '@/features/benchmarks/useHistory';
 import { detail, job } from './fixtures';
 
 describe('history selection races', () => {
+  it('keeps loaded evidence mounted during a refresh and retains its identity for identical replies', async () => {
+    const records = [
+      { job: detail.job, summaries: detail.result?.summaries ?? null },
+    ];
+    const list = vi.spyOn(api, 'getHistory').mockResolvedValue(records);
+    const evidence = vi
+      .spyOn(api, 'getDetail')
+      .mockResolvedValue(structuredClone(detail));
+    const { result } = renderHook(() => useHistory(null));
+    await waitFor(() => expect(result.current.detail).not.toBeNull());
+    const previous = result.current.detail;
+    let resolveList: ((value: typeof records) => void) | undefined;
+    let resolveDetail: ((value: HistoryDetail) => void) | undefined;
+    list.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    evidence.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+    act(() => result.current.reload());
+    expect(result.current.loading).toBe(true);
+    expect(result.current.initialLoading).toBe(false);
+    expect(result.current.items).toEqual(records);
+    expect(result.current.detail).toBe(previous);
+    expect(result.current.selectedId).toBe(detail.job.id);
+    await act(async () => {
+      resolveList?.(structuredClone(records));
+      resolveDetail?.(structuredClone(detail));
+    });
+    await waitFor(() => expect(result.current.detailLoading).toBe(false));
+    expect(result.current.detail).toBe(previous);
+  });
+
+  it('retains errors and cached data until a retry actually succeeds, then accepts changed measurements', async () => {
+    const records = [
+      { job: detail.job, summaries: detail.result?.summaries ?? null },
+    ];
+    const list = vi.spyOn(api, 'getHistory').mockResolvedValue(records);
+    const evidence = vi
+      .spyOn(api, 'getDetail')
+      .mockResolvedValue(structuredClone(detail));
+    const { result } = renderHook(() => useHistory(null));
+    await waitFor(() => expect(result.current.detail).not.toBeNull());
+    const previous = result.current.detail;
+    list.mockRejectedValueOnce(new api.ApiError('History refresh unavailable'));
+    evidence.mockRejectedValueOnce(
+      new api.ApiError('Evidence refresh unavailable'),
+    );
+    act(() => result.current.reload());
+    await waitFor(() =>
+      expect(result.current.detailError).toBe('Evidence refresh unavailable'),
+    );
+    expect(result.current.detail).toBe(previous);
+    expect(result.current.items).toEqual(records);
+    let resolveDetail: ((value: HistoryDetail) => void) | undefined;
+    evidence.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+    act(() => result.current.reload());
+    expect(result.current.detailError).toBe('Evidence refresh unavailable');
+    expect(result.current.detail).toBe(previous);
+    const changed = structuredClone(detail);
+    const summary = changed.result?.summaries[0];
+    if (!summary) throw new Error('Expected fixture summary');
+    summary.cpu_mean_core_percent = 123;
+    await act(async () => {
+      resolveDetail?.(changed);
+    });
+    await waitFor(() => expect(result.current.detailError).toBe(''));
+    expect(
+      result.current.detail?.result?.summaries[0]?.cpu_mean_core_percent,
+    ).toBe(123);
+    expect(result.current.detail).not.toBe(previous);
+  });
   it('aborts an obsolete detail request and ignores its late response', async () => {
     const secondJob = job('COMPLETED', '00000000-0000-4000-8000-000000000002');
     vi.spyOn(api, 'getHistory').mockResolvedValue([

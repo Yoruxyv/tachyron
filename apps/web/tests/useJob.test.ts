@@ -12,6 +12,36 @@ beforeEach(() => {
 });
 
 describe('job lifecycle ownership', () => {
+  it('keeps a cached running job unverified while its failed status request is retried', async () => {
+    vi.advanceTimersByTime(5);
+    sessionStorage.setItem(
+      'tachyron.active.v1',
+      JSON.stringify({ id: job().id }),
+    );
+    vi.spyOn(api, 'getJob')
+      .mockResolvedValueOnce(job('RUNNING'))
+      .mockRejectedValueOnce(new api.ApiError('Status unavailable'))
+      .mockImplementation(() => new Promise(() => {}));
+    const { result, unmount } = renderHook(useJob);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.job?.state).toBe('RUNNING');
+    expect(result.current.verifiedAt).toBeGreaterThan(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(result.current.error).toBe('Status unavailable');
+    expect(result.current.verifiedAt).toBe(0);
+    act(() => result.current.resume());
+    expect(result.current.error).toBe('');
+    expect(result.current.job?.state).toBe('RUNNING');
+    expect(result.current.verifiedAt).toBe(0);
+    expect(
+      JSON.parse(sessionStorage.getItem('tachyron.active.v1') ?? '{}'),
+    ).toEqual({ id: job().id });
+    unmount();
+  });
   it('distinguishes acceptance, progress, and terminal completion and stops polling', async () => {
     vi.spyOn(api, 'startJob').mockResolvedValue(job());
     const poll = vi
