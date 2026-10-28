@@ -350,6 +350,10 @@
   margin-top: 17px;
   position: relative;
 }
+/* Chart.js updates its inline width asynchronously after the container shrinks. */
+.chart-canvas > canvas {
+  max-width: 100%;
+}
 .chart-empty {
   min-height: 205px;
   display: flex;

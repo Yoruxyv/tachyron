@@ -1,8 +1,16 @@
 import { expect, test } from '@playwright/test';
 
+import {
+  checkResponsiveViews,
+  controlResizeDelivery,
+  expectChartsResized,
+  inspectLayout,
+} from './layout';
+
 test('runs the real tiny 1/2/4/8-worker comparison and restores saved evidence', async ({
   page,
 }, testInfo) => {
+  const resize = await controlResizeDelivery(page);
   await page.goto('/#experiments');
   await expect(page.getByLabel('Dataset', { exact: true })).toHaveValue(
     'browser-test',
@@ -55,12 +63,22 @@ test('runs the real tiny 1/2/4/8-worker comparison and restores saved evidence',
     path: testInfo.outputPath('real-tiny-overview.png'),
     fullPage: true,
   });
+  await resize.hold();
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(page.getByRole('button', { name: /Navigation/ })).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
+  const heldLayout = await page.evaluate(inspectLayout);
+  await testInfo.attach('held-chart-resize', {
+    body: JSON.stringify(heldLayout, null, 2),
+    contentType: 'application/json',
+  });
   expect(overflow).toBe(false);
+  for (const chart of heldLayout.charts)
+    expect(chart.canvas.width).toBeLessThanOrEqual(chart.parent?.width ?? 0);
+  await resize.release();
+  await expectChartsResized(page);
   await page.getByRole('button', { name: /Navigation/ }).click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: /Navigation/ })).toBeFocused();
@@ -73,4 +91,5 @@ test('runs the real tiny 1/2/4/8-worker comparison and restores saved evidence',
     path: testInfo.outputPath('real-tiny-mobile-history.png'),
     fullPage: true,
   });
+  await checkResponsiveViews(page, testInfo);
 });

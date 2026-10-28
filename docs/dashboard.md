@@ -232,8 +232,19 @@ Install Chromium first as above. The single core Playwright test uses production
 preview on **4174** and an isolated real API on **8001**, with eight generated
 test-only PNGs, 4×3 output, `tiny: true`, one repetition, and real spawn workers.
 It verifies completion, six charts, units, selection, reload recovery and a
-375-pixel mobile history view. It does not assert exact benchmark duration.
+375-pixel mobile history view. Populated Overview, Compare, History, Experiments
+and API views are checked at 320, 375, 390, 768 and 1280 pixels. It does not assert
+exact benchmark duration.
 The helper is never imported by production code.
+
+Canvas CSS constrains stale inline widths while Chart.js responds asynchronously
+to container resizing. The browser regression holds real ResizeObserver delivery
+during the first mobile resize and immediately checks document and canvas
+containment. It then releases notifications and waits for the bitmap dimensions
+to match the container; no sleep or retry replaces the overflow assertion.
+The `held-chart-resize` and `responsive-layout` JSON attachments record viewport,
+document/body widths, element bounds and styles, fonts, and canvas/container sizes.
+Wide metric tables retain their own horizontal scrolling without widening the page.
 
 The test saves `real-tiny-comparison.png`, `real-tiny-overview.png`, and
 `real-tiny-mobile-history.png` beneath
