@@ -103,19 +103,26 @@ class Metadata(Document):
         for index, item in enumerate(self.files):
             if item.part != f"file-{index}" or item.size_bytes > limits.max_file_bytes:
                 raise DatasetImportError("invalid_request", index=index)
-            parts = portable_parts(item.relative_path)
-            if len(parts) - 1 > DEFAULT_LIMITS.max_depth:
-                raise DatasetImportError("invalid_path", index=index)
-            for depth in range(1, len(parts) + 1):
-                name = "/".join(parts[:depth])
-                key = unicodedata.normalize("NFC", name).casefold()
-                node = (name, depth == len(parts))
-                previous = nodes.get(key)
-                if previous is not None and (previous != node or node[1]):
-                    raise DatasetImportError("path_conflict", index=index)
-                nodes[key] = node
+            _register_path(nodes, item.relative_path, index)
         if len(nodes) > DEFAULT_LIMITS.max_entries:
             raise DatasetImportError("upload_limit_exceeded", 413)
+
+
+def _register_path(
+    nodes: dict[str, tuple[str, bool]], relative_path: str, index: int
+) -> None:
+    """Reject file/directory and portable-name collisions across every prefix."""
+    parts = portable_parts(relative_path)
+    if len(parts) - 1 > DEFAULT_LIMITS.max_depth:
+        raise DatasetImportError("invalid_path", index=index)
+    for depth in range(1, len(parts) + 1):
+        name = "/".join(parts[:depth])
+        key = unicodedata.normalize("NFC", name).casefold()
+        node = (name, depth == len(parts))
+        previous = nodes.get(key)
+        if previous is not None and (previous != node or node[1]):
+            raise DatasetImportError("path_conflict", index=index)
+        nodes[key] = node
 
 
 def portable_parts(name: str) -> tuple[str, ...]:

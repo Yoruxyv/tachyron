@@ -4,6 +4,7 @@
 import multiprocessing
 from pathlib import Path
 from threading import Event
+from unittest.mock import Mock
 from uuid import uuid4
 
 import psutil
@@ -11,6 +12,7 @@ import pytest
 
 from tachyron.benchmarking.models import BenchmarkError
 from tachyron.benchmarking.ownership import experiment_lock
+from tachyron.imports import storage
 from tachyron.imports.models import DatasetImportError, ImportLimits
 from tachyron.imports.service import Session
 from tachyron.imports.storage import Catalog
@@ -44,6 +46,7 @@ def test_recovery_reaps_only_verified_helper_and_retains_ready(
             recovered.recover()
             process.join(timeout=5)
             assert not process.is_alive()
+            assert process.exitcode is not None
             receipt = recovered.get(identifier)
             assert receipt.state == ("READY" if stage == "ready" else "FAILED")
             assert len(recovered.datasets()) == (1 if stage == "ready" else 0)
@@ -61,6 +64,43 @@ def test_recovery_reaps_only_verified_helper_and_retains_ready(
             pass
     finally:
         session.stop()
+        catalog.close()
+
+
+@pytest.mark.parametrize("denied", [False, True])
+def test_unconfirmed_helper_exit_retains_receipt_and_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, denied: bool
+) -> None:
+    catalog = Catalog(tmp_path / "managed", ImportLimits())
+    identifier = str(uuid4())
+    nonce = catalog.create(identifier, "0" * 64)
+    catalog.helper(identifier, 1234, 1.0)
+    directory = catalog.objects / identifier
+    directory.mkdir()
+    (directory / ".owner").write_text(nonce, encoding="ascii")
+    (directory / "precious").write_bytes(b"retain")
+    process = Mock(spec=psutil.Process)
+    process.create_time.return_value = 1.0
+    process.is_running.return_value = True
+    process.status.return_value = psutil.STATUS_RUNNING
+    if denied:
+        process.status.side_effect = psutil.AccessDenied(1234)
+    clock = iter([0.0, 6.0])
+    monkeypatch.setattr(storage, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(storage.psutil, "Process", Mock(return_value=process))
+    try:
+        with pytest.raises(
+            DatasetImportError, match="ownership_unconfirmed"
+        ) as failure:
+            catalog.recover()
+        assert failure.value.status == 503
+        process.kill.assert_not_called()
+        assert catalog.get(identifier).state == "RECEIVING"
+        assert (directory / "precious").read_bytes() == b"retain"
+        assert (
+            catalog.connection.execute("SELECT count(*) FROM work").fetchone()[0] == 1
+        )
+    finally:
         catalog.close()
 
 

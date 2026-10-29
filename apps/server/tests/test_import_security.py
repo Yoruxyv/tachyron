@@ -35,6 +35,33 @@ def test_import_identity_cannot_shadow_an_environment_dataset(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
+    ("history", "managed", "source", "message"),
+    [
+        ("history", "history", "source", "Managed datasets"),
+        ("history", "history/managed", "source", "Managed datasets"),
+        ("managed/history", "managed", "source", "Managed datasets"),
+        ("history", "source/managed", "source", "Managed datasets"),
+        ("history", "managed", "managed/source", "Managed datasets"),
+        ("source/history", "managed", "source", "History and datasets"),
+        ("history", "managed", "history/source", "History and datasets"),
+        ("shared", "shared/managed", "shared/source", "Managed datasets"),
+    ],
+)
+def test_storage_overlap_fails_before_creating_any_store(
+    tmp_path: Path, history: str, managed: str, source: str, message: str
+) -> None:
+    configuration = replace(
+        settings(tmp_path),
+        data_dir=tmp_path / history,
+        dataset_dir=tmp_path / managed,
+        datasets={"environment": tmp_path / source},
+    )
+    with pytest.raises(ValueError, match=message):
+        Coordinator(configuration).start()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
     "name", ["NUL .png", "con .jpg", "COM1 .jpeg", "nested/LPT9 .png"]
 )
 def test_space_padded_windows_device_names_are_rejected(name: str) -> None:
@@ -195,7 +222,7 @@ def test_symlinked_managed_root_is_rejected_before_resolution(tmp_path: Path) ->
     try:
         link.symlink_to(actual, target_is_directory=True)
     except OSError as error:
-        pytest.skip(f"Host does not permit symlink creation: {error.winerror}")
+        pytest.skip(f"Host does not permit symlink creation: {error.errno}")
     manager = Coordinator(replace(settings(tmp_path), dataset_dir=link / "managed"))
     with pytest.raises(ProcessingError, match="links"):
         manager.start()

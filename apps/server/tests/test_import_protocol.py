@@ -307,3 +307,112 @@ def test_validation_guard_allows_progress_beyond_two_minutes(
         catalog.finish(identifier, "test_finished")
         session.close()
         catalog.close()
+
+
+@pytest.mark.parametrize("counts", [[0], [2], [1, 1], [1, 2, 3, 4]])
+def test_only_sequential_validation_acknowledgements_are_accepted(
+    tmp_path: Path, counts: list[int]
+) -> None:
+    body, headers, identifier = payload({f"{i}.png": png() for i in range(3)})
+    catalog = Catalog(tmp_path / "managed", ImportLimits())
+    session = Session(
+        catalog, identifier, headers["X-Tachyron-Metadata-SHA256"], "test"
+    )
+    session.metadata = Metadata.model_validate_json(
+        body.split(b"\r\n\r\n", 1)[1].split(b"\r\n--test", 1)[0]
+    )
+    channel = Mock(spec=Channel)
+    channel.poll.return_value = True
+    channel.recv_bytes.side_effect = [
+        json.dumps({"kind": "validated", "count": count}).encode() for count in counts
+    ]
+    session.connection = channel
+    try:
+        with pytest.raises(DatasetImportError, match="worker_protocol"):
+            session.exchange(b"finish", "complete")
+        assert session.progress.validated_files == (
+            counts[-2] if len(counts) > 1 else None
+        )
+        assert catalog.get(identifier).state == "RECEIVING"
+    finally:
+        catalog.finish(identifier, "test_finished")
+        session.close()
+        catalog.close()
+
+
+def test_metadata_capacity_failure_never_authorizes_helper_writes(
+    tmp_path: Path,
+) -> None:
+    body, headers, identifier = payload({"a.png": png()})
+    metadata = json.loads(body.split(b"\r\n\r\n", 1)[1].split(b"\r\n--test", 1)[0])
+    catalog = Catalog(tmp_path / "managed", ImportLimits(storage_bytes=1))
+    session = Session(
+        catalog, identifier, headers["X-Tachyron-Metadata-SHA256"], "test"
+    )
+    channel = Mock(spec=Channel)
+    channel.poll.return_value = True
+    channel.recv_bytes.return_value = json.dumps(
+        {"kind": "metadata", "value": metadata}
+    ).encode()
+    session.connection = channel
+    try:
+        with pytest.raises(DatasetImportError, match="dataset_capacity"):
+            session.exchange(b"data:body", "received")
+        channel.send_bytes.assert_called_once_with(b"data:body")
+        assert session.metadata is None
+        assert session.progress.total_files is None
+    finally:
+        catalog.finish(identifier, "test_finished")
+        session.close()
+        catalog.close()
+
+
+def test_validation_heartbeats_do_not_extend_watchdog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog = Catalog(tmp_path / "managed", ImportLimits())
+    session = Session(catalog, "heartbeat", "0" * 64, "test")
+    channel = Mock(spec=Channel)
+    elapsed = 0.0
+
+    def poll(_seconds: float) -> bool:
+        nonlocal elapsed
+        elapsed += 21
+        return True
+
+    monkeypatch.setattr(service, "monotonic", lambda: elapsed)
+    channel.poll.side_effect = poll
+    channel.recv_bytes.return_value = b'{"kind":"validating","index":0}'
+    session.connection = channel
+    try:
+        with pytest.raises(DatasetImportError, match="validation_timeout"):
+            session.exchange(b"finish", "complete")
+        assert channel.recv_bytes.call_count == 3
+        assert session.progress.validated_files is None
+    finally:
+        catalog.finish(session.identifier, "test_finished")
+        session.close()
+        catalog.close()
+
+
+def test_changed_bytes_fail_before_acknowledging_image_validation(
+    tmp_path: Path,
+) -> None:
+    body, headers, _ = payload({"a.png": png()})
+    channel = Mock(spec=Channel, wraps=Acknowledgements())
+    upload = Upload(
+        channel, tmp_path, headers["X-Tachyron-Metadata-SHA256"], "test", ImportLimits()
+    )
+    try:
+        upload.parser.write(body)
+        (tmp_path / "a.png").write_bytes(b"x" * len(png()))
+        with pytest.raises(DatasetImportError, match="input_changed") as failure:
+            upload.finish()
+        assert failure.value.index == 0
+        messages = [
+            json.loads(call.args[0]) for call in channel.send_bytes.call_args_list
+        ]
+        assert messages[-1] == {"kind": "validating", "index": 0}
+        assert not any(message["kind"] == "validated" for message in messages)
+    finally:
+        upload.close()

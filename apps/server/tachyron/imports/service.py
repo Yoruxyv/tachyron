@@ -111,42 +111,53 @@ class Session:
                 "dict[str, object]", json.loads(connection.recv_bytes(FRAME_BYTES))
             )
             kind = raw.get("kind")
-            if kind == "failure":
-                raise DatasetImportError(
-                    str(raw["code"]),
-                    int(cast("int", raw["status"])),
-                    cast("int | None", raw.get("index")),
-                )
-            if kind == "metadata":
-                metadata = Metadata.model_validate_json(json.dumps(raw["value"]))
-                self.catalog.reserve(self.identifier, metadata)
-                self.metadata = metadata
-                self.progress = Progress(
-                    total_files=len(metadata.files), received_files=0, validated_files=0
-                )
-                connection.send_bytes(b"continue")
-            elif kind == "validated":
-                count = int(cast("int", raw["count"]))
-                if (
-                    self.metadata is None
-                    or count != (self.progress.validated_files or 0) + 1
-                    or count > len(self.metadata.files)
-                ):
-                    raise DatasetImportError("worker_protocol", 503)
-                self.progress = self.progress.model_copy(
-                    update={"validated_files": count}
-                )
+            if kind == "validated":
+                self._record_validation(int(cast("int", raw["count"])))
                 deadline = monotonic() + self.catalog.limits.image_seconds
-            elif kind == expected:
-                if kind == "complete":
-                    self._validated = True
-                if kind == "received":
-                    self.progress = self.progress.model_copy(
-                        update={"received_files": int(cast("int", raw["count"]))}
-                    )
+            elif self._accept_reply(raw, expected, connection):
                 return raw
-            elif kind != "validating":
-                raise DatasetImportError("worker_protocol", 503)
+
+    def _record_validation(self, count: int) -> None:
+        """Only sequential acknowledgements within the workload advance validation."""
+        if (
+            self.metadata is None
+            or count != (self.progress.validated_files or 0) + 1
+            or count > len(self.metadata.files)
+        ):
+            raise DatasetImportError("worker_protocol", 503)
+        self.progress = self.progress.model_copy(update={"validated_files": count})
+
+    def _accept_reply(
+        self, raw: dict[str, object], expected: str, connection: Channel
+    ) -> bool:
+        """Reserve metadata before authorizing writes; accept only the pending reply."""
+        kind = raw.get("kind")
+        if kind == "failure":
+            raise DatasetImportError(
+                str(raw["code"]),
+                int(cast("int", raw["status"])),
+                cast("int | None", raw.get("index")),
+            )
+        if kind == "metadata":
+            metadata = Metadata.model_validate_json(json.dumps(raw["value"]))
+            self.catalog.reserve(self.identifier, metadata)
+            self.metadata = metadata
+            self.progress = Progress(
+                total_files=len(metadata.files), received_files=0, validated_files=0
+            )
+            connection.send_bytes(b"continue")
+            return False
+        if kind == expected:
+            if kind == "complete":
+                self._validated = True
+            if kind == "received":
+                self.progress = self.progress.model_copy(
+                    update={"received_files": int(cast("int", raw["count"]))}
+                )
+            return True
+        if kind != "validating":
+            raise DatasetImportError("worker_protocol", 503)
+        return False
 
     def feed(self, data: bytes) -> None:
         """Slice ASGI chunks so pipe writes and parser buffering stay bounded."""

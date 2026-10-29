@@ -42,6 +42,11 @@ test('keeps dropdowns compact, anchored, accessible and above cards at every lay
   const boxes = [];
   for (const width of [1440, 1024, 768, 375, 320]) {
     await page.setViewportSize({ width, height: 900 });
+    // Resize events precede animation frames and intentionally close open selects.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
     const controls = await page.evaluate(() => {
       const pill = document.querySelector('.header-selects');
       if (!pill) throw new Error('Missing header selector group');

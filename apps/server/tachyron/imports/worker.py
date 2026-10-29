@@ -211,15 +211,24 @@ class Upload:
             self.root, ordered, manifest_digest(ordered), DEFAULT_LIMITS
         )
         for index, entry in enumerate(self.entries):
-            send(self.connection, {"kind": "validating", "index": index})
-            data = read_input(self.root, entry.relative_path, DEFAULT_LIMITS)
-            if hashlib.sha256(data).hexdigest() != entry.sha256:
-                raise DatasetImportError("input_changed", index=index)
-            try:
-                validate_image(data, DEFAULT_LIMITS)
-            except ProcessingError as error:
-                raise DatasetImportError(error.code, index=index) from error
-            send(self.connection, {"kind": "validated", "count": index + 1})
+            self._validate_entry(index, entry)
+        self._sync_directories()
+        return manifest
+
+    def _validate_entry(self, index: int, entry: ManifestEntry) -> None:
+        """Acknowledge progress only after byte identity and decoder acceptance."""
+        send(self.connection, {"kind": "validating", "index": index})
+        data = read_input(self.root, entry.relative_path, DEFAULT_LIMITS)
+        if hashlib.sha256(data).hexdigest() != entry.sha256:
+            raise DatasetImportError("input_changed", index=index)
+        try:
+            validate_image(data, DEFAULT_LIMITS)
+        except ProcessingError as error:
+            raise DatasetImportError(error.code, index=index) from error
+        send(self.connection, {"kind": "validated", "count": index + 1})
+
+    def _sync_directories(self) -> None:
+        """Persist created directory entries where directory fsync is supported."""
         if os.name != "nt":
             for directory, _, _ in os.walk(self.root, topdown=False):
                 descriptor = os.open(directory, os.O_RDONLY)
@@ -227,7 +236,6 @@ class Upload:
                     os.fsync(descriptor)
                 finally:
                     os.close(descriptor)
-        return manifest
 
     def close(self) -> None:
         if self.file is not None:

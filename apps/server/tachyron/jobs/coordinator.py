@@ -130,25 +130,10 @@ class Coordinator:
         """
         if self._thread is not None:
             raise RuntimeError("Coordinator already started")
-        candidate = self.settings.data_dir.resolve()
         managed_path = self.settings.dataset_dir or self.settings.data_dir.with_name(
             self.settings.data_dir.name + "-datasets"
         )
-        managed = managed_path.resolve()
-        for other in (
-            candidate,
-            *(root.resolve() for root in self.settings.datasets.values()),
-        ):
-            if managed.is_relative_to(other) or other.is_relative_to(managed):
-                raise ValueError(
-                    "Managed datasets, history and inputs must not overlap"
-                )
-        for root in self.settings.datasets.values():
-            canonical = root.resolve()
-            if candidate.is_relative_to(canonical) or canonical.is_relative_to(
-                candidate
-            ):
-                raise ValueError("History and datasets must not overlap")
+        self._check_storage_paths(managed_path)
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
         self.directory = dataset_root(self.settings.data_dir)
         self.store = HistoryStore(self.directory / "history.sqlite3")
@@ -169,6 +154,22 @@ class Coordinator:
             self._healthy = False
             self.close()
             raise
+
+    def _check_storage_paths(self, managed_path: Path) -> None:
+        """Reject overlapping storage namespaces before opening or creating stores."""
+        candidate = self.settings.data_dir.resolve()
+        managed = managed_path.resolve()
+        roots = tuple(root.resolve() for root in self.settings.datasets.values())
+        if any(
+            managed.is_relative_to(other) or other.is_relative_to(managed)
+            for other in (candidate, *roots)
+        ):
+            raise ValueError("Managed datasets, history and inputs must not overlap")
+        if any(
+            candidate.is_relative_to(root) or root.is_relative_to(candidate)
+            for root in roots
+        ):
+            raise ValueError("History and datasets must not overlap")
 
     def _discover(self) -> None:
         """Freeze each allowlisted manifest; preserve unavailable dataset entries."""

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from threading import RLock
+from time import monotonic, sleep
 from typing import cast
 from uuid import uuid4
 
@@ -438,8 +439,13 @@ class Catalog:
                 and "--multiprocessing-fork" in process.cmdline()
             ):
                 process.kill()
-            process.wait(timeout=5)
-        except (psutil.TimeoutExpired, psutil.AccessDenied) as error:
+            deadline = monotonic() + 5
+            # Observe exit without stealing multiprocessing's POSIX wait status.
+            while process.is_running() and process.status() != psutil.STATUS_ZOMBIE:
+                if monotonic() > deadline:
+                    raise DatasetImportError("ownership_unconfirmed", 503)
+                sleep(0.05)
+        except psutil.AccessDenied as error:
             raise DatasetImportError("ownership_unconfirmed", 503) from error
 
     def close(self) -> None:

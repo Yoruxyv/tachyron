@@ -257,6 +257,8 @@ def test_envelope_covers_production_payload_and_every_header() -> None:
         ["A/a.png", "a/b.png"],
         ["a.png", "A.png"],
         ["a", "a/b.png"],
+        ["a/b.png", "a"],
+        ["a.png", "a.png"],
         ["é.png", "e\u0301.png"],
     ],
 )
@@ -276,5 +278,7 @@ def test_ambiguous_trees_are_rejected(names: list[str]) -> None:
         ],
     }
     metadata = Metadata.model_validate_json(json.dumps(raw))
-    with pytest.raises(DatasetImportError, match="path_conflict"):
+    with pytest.raises(DatasetImportError, match="path_conflict") as failure:
         metadata.check(ImportLimits())
+    assert failure.value.status == 422
+    assert failure.value.index == 1

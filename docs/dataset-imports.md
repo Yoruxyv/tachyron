@@ -262,6 +262,9 @@ closed rather than targeting another process. Live request cleanup uses its own
 Process object. This is best-effort supervision, not a Windows Job Object, Linux
 cgroup, codec sandbox, hard resource isolation or protection against hostile code
 running as the same OS account.
+Recovery observes process exit without consuming another owner's POSIX wait status.
+A zombie has already stopped executing and released its file locks; its original
+parent or the OS reaper retains responsibility for collecting the exit status.
 A broken parent pipe also stops the helper at its next progress exchange; native
 decode already in progress still requires supervised termination or completion.
 
