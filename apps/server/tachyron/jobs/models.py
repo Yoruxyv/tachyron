@@ -5,9 +5,10 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tachyron.benchmarking.models import BenchmarkConfig, Experiment
+from tachyron.benchmarking.models import DEFAULT_CONFIG, BenchmarkConfig, Experiment
 from tachyron.benchmarking.stats import WorkerSummary, summarize
 from tachyron.processing import TransformConfig
+from tachyron.processing.models import DEFAULT_TRANSFORM
 
 DatasetId = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")]
 JobState = Literal["QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
@@ -21,12 +22,14 @@ class RunRequest(BaseModel):
 
     dataset_id: DatasetId
     operation: Literal["resize-grayscale-v1"] = "resize-grayscale-v1"
-    width: int = Field(default=256, ge=1, le=4096)
-    height: int = Field(default=256, ge=1, le=4096)
-    repetitions: int = Field(default=5, ge=1, le=20)
-    seed: int = Field(default=2026, ge=0, le=2**32 - 1)
-    sampling_interval: float = Field(default=0.1, ge=0.01, le=10)
-    tiny: bool = False
+    width: int = Field(default=DEFAULT_TRANSFORM.width, ge=1, le=4096)
+    height: int = Field(default=DEFAULT_TRANSFORM.height, ge=1, le=4096)
+    repetitions: int = Field(default=DEFAULT_CONFIG.repetitions, ge=1, le=20)
+    seed: int = Field(default=DEFAULT_CONFIG.seed, ge=0, le=2**32 - 1)
+    sampling_interval: float = Field(
+        default=DEFAULT_CONFIG.sampling_interval, ge=0.01, le=10
+    )
+    tiny: bool = DEFAULT_CONFIG.tiny
 
     @model_validator(mode="after")
     def validate_schedule(self) -> "RunRequest":

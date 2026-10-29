@@ -1,27 +1,22 @@
 # Copyright (c) 2026 Hans Valerie
 """One lifespan-owned consumer, a bounded waiting queue, and durable job states."""
 
-import json
 import logging
-import os
-import re
 import sqlite3
 from collections import deque
 from contextlib import suppress
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Condition, Event, Thread
-from typing import cast
 from uuid import uuid4
 
 import psutil
 
 from tachyron.benchmarking.exports import read_experiment
-from tachyron.benchmarking.models import BenchmarkError, RunRecord
+from tachyron.benchmarking.models import WORKERS, BenchmarkError, RunRecord
 from tachyron.benchmarking.runner import run_experiment
 from tachyron.imports.models import TERMINAL as IMPORT_TERMINAL
-from tachyron.imports.models import DatasetImportError, ImportLimits, Operation
+from tachyron.imports.models import DatasetImportError, Operation
 from tachyron.imports.service import Session
 from tachyron.imports.storage import Catalog
 from tachyron.jobs.models import (
@@ -34,6 +29,7 @@ from tachyron.jobs.models import (
 from tachyron.persistence import HistoryStore
 from tachyron.processing import DatasetManifest, ProcessingError, build_manifest
 from tachyron.processing.dataset import dataset_root
+from tachyron.settings import Settings
 from tachyron.workers import WorkerExecutionError, defer_startup_interrupt
 
 logger = logging.getLogger(__name__)
@@ -42,56 +38,6 @@ logger = logging.getLogger(__name__)
 def stamp() -> str:
     """Use timezone-aware UTC for durable lifecycle timestamps."""
     return datetime.now(UTC).isoformat()
-
-
-@dataclass(frozen=True)
-class Settings:
-    """Operator-owned configuration; HTTP clients cannot select filesystem paths."""
-
-    datasets: dict[str, Path] = field(default_factory=dict[str, Path])
-    data_dir: Path = Path("results/api")
-    queue_capacity: int = 2
-    dataset_dir: Path | None = None
-    import_limits: ImportLimits = field(default_factory=ImportLimits)
-    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "::1")
-    allowed_origins: tuple[str, ...] = (
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://127.0.0.1:8000",
-        "http://127.0.0.1:4174",
-        "http://127.0.0.1:4173",
-    )
-
-    def __post_init__(self) -> None:
-        if len(self.datasets) > 32 or any(
-            re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", name) is None
-            for name in self.datasets
-        ):
-            raise ValueError("Allow at most 32 portable dataset identifiers")
-        if type(self.queue_capacity) is not int or not 1 <= self.queue_capacity <= 16:
-            raise ValueError("Waiting queue capacity must be between 1 and 16")
-
-    @classmethod
-    def from_environment(cls) -> "Settings":
-        """Load a small explicit allowlist and an operator-owned history directory."""
-        raw = os.environ.get("TACHYRON_DATASETS", "{}")
-        if len(raw) > 16_384:
-            raise ValueError("Dataset configuration is too large")
-        configured: object = json.loads(raw)
-        if not isinstance(configured, dict):
-            raise TypeError("Dataset configuration must be an object")
-        datasets: dict[str, Path] = {}
-        for name, path in cast("dict[str, object]", configured).items():
-            if not isinstance(name, str) or not isinstance(path, str):
-                raise TypeError("Dataset identifiers and roots must be strings")
-            datasets[name] = Path(path)
-        return cls(
-            datasets,
-            Path(os.environ.get("TACHYRON_DATA_DIR", "results/api")),
-            dataset_dir=Path(
-                os.environ.get("TACHYRON_DATASET_DIR", "datasets/imported")
-            ),
-        )
 
 
 class AdmissionError(ValueError):
@@ -213,7 +159,7 @@ class Coordinator:
                 manifest_sha256=manifest.sha256,
                 input_count=len(manifest.entries),
                 created_at=stamp(),
-                total_batches=4 * (request.repetitions + 1),
+                total_batches=len(WORKERS) * (request.repetitions + 1),
             )
             self._signals[job.id] = Event()
             self._queue.append(job.id)

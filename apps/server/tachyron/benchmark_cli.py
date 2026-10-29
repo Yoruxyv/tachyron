@@ -11,10 +11,11 @@ from pathlib import Path
 import psutil
 
 from tachyron.benchmarking.exports import publish_exports, read_experiment
-from tachyron.benchmarking.models import BenchmarkConfig, Experiment
+from tachyron.benchmarking.models import DEFAULT_CONFIG, BenchmarkConfig, Experiment
 from tachyron.benchmarking.runner import run_experiment
 from tachyron.benchmarking.stats import summarize
 from tachyron.processing import TransformConfig, build_manifest
+from tachyron.processing.models import DEFAULT_TRANSFORM
 from tachyron.workers import WorkerExecutionError
 
 
@@ -48,11 +49,13 @@ def _arguments(argv: Sequence[str] | None) -> Arguments:
         type=Path,
         help="New experiment directory outside the dataset",
     )
-    run.add_argument("--width", type=int, default=256)
-    run.add_argument("--height", type=int, default=256)
+    run.add_argument("--width", type=int, default=DEFAULT_TRANSFORM.width)
+    run.add_argument("--height", type=int, default=DEFAULT_TRANSFORM.height)
     run.add_argument("--repetitions", type=int, help="5-20 normally; 1-20 with --tiny")
-    run.add_argument("--seed", type=int, default=2026)
-    run.add_argument("--sampling-interval", type=float, default=0.1)
+    run.add_argument("--seed", type=int, default=DEFAULT_CONFIG.seed)
+    run.add_argument(
+        "--sampling-interval", type=float, default=DEFAULT_CONFIG.sampling_interval
+    )
     run.add_argument(
         "--tiny",
         action="store_true",
@@ -78,7 +81,7 @@ def _run(arguments: Arguments) -> Experiment:
     config = BenchmarkConfig(
         repetitions=repetitions
         if repetitions is not None
-        else (1 if arguments.tiny else 5),
+        else (1 if arguments.tiny else DEFAULT_CONFIG.repetitions),
         seed=arguments.seed,
         sampling_interval=arguments.sampling_interval,
         tiny=arguments.tiny,

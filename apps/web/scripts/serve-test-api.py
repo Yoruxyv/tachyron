@@ -11,7 +11,7 @@ import uvicorn
 from PIL import Image
 
 from tachyron.api import create_app
-from tachyron.jobs.coordinator import Settings
+from tachyron.settings import Settings
 
 
 def prepare_dataset(root: Path) -> dict[str, Path]:

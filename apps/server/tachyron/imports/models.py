@@ -88,7 +88,9 @@ class Metadata(Document):
     schema_version: Literal[1]
     display_name: str = Field(min_length=1, max_length=80)
     selection: Selection
-    files: tuple[FileSpec, ...] = Field(min_length=1, max_length=1000)
+    files: tuple[FileSpec, ...] = Field(
+        min_length=1, max_length=DEFAULT_LIMITS.max_files
+    )
 
     def check(self, limits: ImportLimits) -> None:
         """Reject excessive or ambiguous trees before writing any file."""

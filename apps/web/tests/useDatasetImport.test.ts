@@ -50,10 +50,57 @@ beforeEach(() => {
     max_files: 1000,
     max_file_bytes: 33554432,
     max_total_bytes: 536870912,
+    metadata_bytes: 524288,
     receive_seconds: 600,
     image_seconds: 60,
   });
 });
+
+it.each([false, true])(
+  'checks UTF-8 metadata bytes against server policy (fits: %s)',
+  async (fits) => {
+    const metadata = '{"name":"é"}';
+    const bytes = new TextEncoder().encode(metadata).length;
+    vi.mocked(api.getImportPolicy).mockResolvedValue({
+      max_files: 1,
+      max_file_bytes: 1024,
+      max_total_bytes: 1024,
+      metadata_bytes: fits ? bytes : bytes - 1,
+      receive_seconds: 7,
+      image_seconds: 3,
+    });
+    vi.spyOn(api, 'getImport').mockImplementation(() => new Promise(() => {}));
+    const upload = vi
+      .spyOn(api, 'uploadImport')
+      .mockResolvedValue(receipt('READY'));
+    const { result } = renderHook(() => useDatasetImport(vi.fn()));
+    await waitFor(() => expect(result.current.policy).not.toBeNull());
+    await act(() => result.current.choose([selectedFile()]));
+    act(() => result.current.start());
+    act(() =>
+      PreparationWorker.current?.onmessage?.(
+        new MessageEvent('message', {
+          data: { kind: 'complete', metadata, digest: 'a'.repeat(64) },
+        }),
+      ),
+    );
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(
+      PreparationWorker.current?.terminate,
+    ).toHaveBeenCalledExactlyOnceWith();
+    if (fits) {
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(upload.mock.calls[0]?.[3]).toBe((7 + 3 * 2 + 30) * 1000);
+      expect(result.current.operation?.state).toBe('READY');
+    } else {
+      expect(upload).not.toHaveBeenCalled();
+      expect(result.current.identifier).toBe('');
+      expect(result.current.error).toBe(
+        'Selection metadata is too large. Choose a smaller folder.',
+      );
+    }
+  },
+);
 
 it.each([false, true])(
   'ignores a late cancel response after READY or a newer folder (new folder: %s)',
@@ -339,6 +386,7 @@ it('keeps count, aggregate byte and per-file limits before creating a hashing wo
     max_files: 1,
     max_file_bytes: 8,
     max_total_bytes: 8,
+    metadata_bytes: 524288,
     receive_seconds: 600,
     image_seconds: 60,
   });

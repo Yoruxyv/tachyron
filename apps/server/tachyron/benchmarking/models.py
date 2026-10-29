@@ -70,6 +70,9 @@ class BenchmarkConfig:
             )
 
 
+DEFAULT_CONFIG = BenchmarkConfig()
+
+
 @dataclass(frozen=True, slots=True)
 class Environment:
     """Loaded code/runtime and hardware snapshot; unavailable information is null."""

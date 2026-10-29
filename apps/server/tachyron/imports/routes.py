@@ -13,7 +13,7 @@ from fastapi import APIRouter, Header, Request, Response
 from python_multipart.multipart import parse_options_header
 from starlette.requests import ClientDisconnect
 
-from tachyron.imports.models import DatasetImportError, Operation
+from tachyron.imports.models import METADATA_BYTES, DatasetImportError, Operation
 from tachyron.imports.service import Session
 from tachyron.jobs.routes import Manager
 
@@ -28,7 +28,7 @@ def policy(manager: Manager) -> dict[str, object]:
     return {
         "schema_version": 1,
         **asdict(manager.catalog.limits),
-        "metadata_bytes": 512 * 1024,
+        "metadata_bytes": METADATA_BYTES,
         "formats": ["PNG", "JPEG"],
     }
 

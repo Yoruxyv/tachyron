@@ -14,10 +14,11 @@ from pydantic import ValidationError
 
 from tachyron.imports.models import DatasetImportError
 from tachyron.imports.routes import router as import_router
-from tachyron.jobs.coordinator import AdmissionError, Coordinator, Settings
+from tachyron.jobs.coordinator import AdmissionError, Coordinator
 from tachyron.jobs.routes import router
 from tachyron.processing import ProcessingError
 from tachyron.request_security import LocalRequests
+from tachyron.settings import Settings
 
 
 async def health() -> dict[str, Literal["ok"]]:

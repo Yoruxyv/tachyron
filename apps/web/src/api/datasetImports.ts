@@ -6,6 +6,7 @@ export interface ImportPolicy {
   max_files: number;
   max_file_bytes: number;
   max_total_bytes: number;
+  metadata_bytes: number;
   receive_seconds: number;
   image_seconds: number;
 }
@@ -127,6 +128,7 @@ export async function getImportPolicy(
     max_files: count(data.max_files),
     max_file_bytes: count(data.max_file_bytes),
     max_total_bytes: count(data.max_total_bytes),
+    metadata_bytes: count(data.metadata_bytes),
     receive_seconds: count(data.receive_seconds),
     image_seconds: count(data.image_seconds),
   };

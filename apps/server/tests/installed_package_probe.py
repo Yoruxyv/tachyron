@@ -26,9 +26,12 @@ assert Path(tachyron.__file__).resolve().is_relative_to(Path(sys.prefix).resolve
 
 if sys.argv[1:] == ["--api"]:
     from tachyron.api import create_app, health
+    from tachyron.jobs.coordinator import Settings as LegacySettings
+    from tachyron.settings import Settings
 
+    assert Settings is LegacySettings
     assert asyncio.run(health()) == {"status": "ok"}
-    assert "/api/jobs" in create_app().openapi()["paths"]
+    assert "/api/jobs" in create_app(Settings()).openapi()["paths"]
     assert "/api/dataset-imports" in create_app().openapi()["paths"]
     raise SystemExit(0)
 
