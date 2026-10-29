@@ -982,7 +982,6 @@
 }
 .history-record[aria-pressed='true'] {
   background: #252b33;
-  box-shadow: inset 2px 0 #dce1e6;
 }
 .history-record strong {
   display: block;
@@ -996,6 +995,12 @@
   color: #a4aebb;
   margin-top: 4px;
 }
+
+.history-record > .state {
+  justify-self: start;
+  width: max-content;
+}
+
 .state {
   display: inline-flex;
   align-items: center;
