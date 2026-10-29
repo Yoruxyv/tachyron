@@ -14,7 +14,6 @@ import type { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
 interface Props {
   readonly importAction?: ReactNode;
-  readonly importPanel?: ReactNode;
   readonly importing?: boolean;
   readonly view: View;
   readonly navigate: (view: View) => void;
@@ -52,7 +51,6 @@ export default function BenchmarkWorkspace({
   health,
   jobVerified,
   importAction,
-  importPanel,
   importing = false,
 }: Props) {
   const form = (
@@ -110,10 +108,7 @@ export default function BenchmarkWorkspace({
   if (view === 'experiments')
     return (
       <div className="experiment-grid">
-        <div className="stack">
-          {form}
-          {importPanel}
-        </div>
+        <div className="stack">{form}</div>
         <JobProgress
           job={execution.job}
           busy={execution.busy}

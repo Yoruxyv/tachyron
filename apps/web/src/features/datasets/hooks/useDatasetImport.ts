@@ -12,12 +12,15 @@ import {
   type ImportOperation,
   type ImportPolicy,
 } from '@/api/datasetImports';
+import { reviewFile, type ReviewFile } from '../reviewFile';
 
-export interface ReviewFile {
-  file: File;
-  path: string;
-  included: boolean;
-  problem: string;
+export type { ReviewFile } from '../reviewFile';
+export interface ImportFeedback {
+  readonly id: number;
+  readonly kind: 'failure' | 'recovery';
+  readonly title: string;
+  readonly message: string;
+  readonly announce?: boolean;
 }
 const key = 'tachyron.import.v1';
 function restore(): string {
@@ -32,6 +35,10 @@ function restore(): string {
 }
 export function useDatasetImport(onReady: (dataset: Dataset) => void) {
   const [files, setFiles] = useState<ReviewFile[]>([]);
+  const [open, setOpen] = useState(false);
+  const [feedback, setFeedback] = useState<ImportFeedback | null>(null);
+  const feedbackId = useRef(0);
+  const initiated = useRef(false);
   const [reviewing, setReviewing] = useState(false);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [name, setName] = useState('');
@@ -44,6 +51,7 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [cancelling, setCancelling] = useState(false);
   const [revision, setRevision] = useState(0);
   const worker = useRef<Worker | null>(null);
   const action = useRef<AbortController | null>(null);
@@ -54,6 +62,15 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
   useEffect(() => {
     ready.current = onReady;
   }, [onReady]);
+  useEffect(() => {
+    if (error && open)
+      setFeedback({
+        id: ++feedbackId.current,
+        kind: 'failure',
+        title: 'Dataset import needs attention',
+        message: error,
+      });
+  }, [error, open]);
   const accept = useCallback((value: ImportOperation) => {
     const previous = observed.current;
     if (
@@ -67,6 +84,7 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
       return;
     observed.current = value;
     setOperation(value);
+    if (value.state !== 'READY') setOpen(true);
     if (importTerminal(value)) {
       setPolling(false);
       if (
@@ -77,6 +95,15 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
         delivered.current = value.operation_id;
         ready.current(value.dataset);
         setError('');
+        setFiles([]);
+        setOpen(false);
+        if (initiated.current)
+          setFeedback({
+            id: ++feedbackId.current,
+            kind: 'recovery',
+            title: 'Dataset registered',
+            message: 'The imported dataset is available for selection.',
+          });
       } else if (value.error_code) setError(importMessage(value.error_code));
     }
   }, []);
@@ -109,6 +136,7 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
         failures += 1;
         if (failures >= 5) {
           setPolling(false);
+          setOpen(true);
           setError(
             'Operation outcome unconfirmed. Check status before starting another import.',
           );
@@ -136,7 +164,6 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
 
   async function choose(selected: File[]) {
     if (
-      !selected.length ||
       preparing ||
       uploading ||
       (identifier && (!operation || !importTerminal(operation)))
@@ -144,21 +171,31 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
       return;
     const current = ++generation.current;
     setSelectionRevision((value) => value + 1);
+    setOpen(true);
     setReviewing(true);
     setFiles([]);
     setError('');
+    setFeedback(null);
     setIdentifier('');
     setPolling(false);
     setOperation(null);
     observed.current = null;
     setProgress(null);
     setPrepared(0);
+    setCancelling(false);
+    initiated.current = false;
     try {
       sessionStorage.removeItem(key);
     } catch {
       setError('Reload recovery is unavailable. Keep this tab open.');
     }
     try {
+      if (!selected.length) {
+        setError(
+          'No usable files were selected. Empty folders are not exposed by every browser. Choose another folder.',
+        );
+        return;
+      }
       if (selected.length > 10000) {
         setError('Choose a folder with at most 10,000 entries.');
         return;
@@ -176,6 +213,10 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
       );
       reviewed.sort((a, b) => a.path.localeCompare(b.path));
       setFiles(reviewed);
+      if (reviewed.some((entry) => entry.unsupported))
+        setError(
+          'Unsupported files detected. Remove them and select the folder again. No files were uploaded.',
+        );
     } catch {
       if (current === generation.current)
         setError('Unable to read this folder. Select it again.');
@@ -192,12 +233,14 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
       !selected.length ||
       selected.length > policy.max_files ||
       bytes > policy.max_total_bytes ||
+      files.some((entry) => entry.unsupported) ||
       selected.some((entry) => entry.problem)
     ) {
       setError('Review included files and import limits before confirming.');
       return;
     }
     const id = crypto.randomUUID();
+    initiated.current = true;
     const current = ++generation.current;
     const controller = new AbortController();
     action.current = controller;
@@ -353,6 +396,7 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
     }
   }
   async function cancel() {
+    if (cancelling) return;
     if (reviewing || preparing) {
       generation.current += 1;
       worker.current?.terminate();
@@ -365,6 +409,7 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
     setUploading(false);
     if (!identifier) return;
     const current = generation.current;
+    setCancelling(true);
     try {
       const value = await cancelImport(
         identifier,
@@ -377,9 +422,36 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
     } catch {
       if (current === generation.current)
         setError('Cancellation unconfirmed. Check operation status.');
+    } finally {
+      if (current === generation.current) setCancelling(false);
     }
   }
   return {
+    open,
+    feedback,
+    cancelling,
+    show: () => setOpen(true),
+    close: () => {
+      if (
+        reviewing ||
+        preparing ||
+        uploading ||
+        (identifier && (!operation || !importTerminal(operation)))
+      )
+        return;
+      setOpen(false);
+      setFiles([]);
+      setError('');
+    },
+    requireConfirmation: () =>
+      setFeedback({
+        id: ++feedbackId.current,
+        kind: 'failure',
+        title: 'Confirm the workload',
+        announce: false,
+        message:
+          'Acknowledge the included images and exclusions before importing.',
+      }),
     files,
     reviewing,
     selectionRevision,
@@ -413,31 +485,4 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
       setRevision((value) => value + 1);
     },
   };
-}
-
-async function reviewFile(file: File, maxBytes: number): Promise<ReviewFile> {
-  const path = file.webkitRelativePath
-    ? file.webkitRelativePath.split('/').slice(1).join('/')
-    : file.name;
-  let problem = '';
-  if (!file.size || file.size > maxBytes)
-    problem = 'File size exceeds import limits';
-  else {
-    try {
-      const bytes = new Uint8Array(await file.slice(0, 8).arrayBuffer());
-      const png =
-        bytes[0] === 137 &&
-        bytes[1] === 80 &&
-        bytes[2] === 78 &&
-        bytes[3] === 71;
-      const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-      if (!png && !jpeg)
-        problem =
-          'Unsupported signature; explicitly exclude or choose another folder';
-    } catch {
-      problem =
-        'File cannot be read; explicitly exclude or choose another folder';
-    }
-  }
-  return { file, path, included: true, problem };
 }

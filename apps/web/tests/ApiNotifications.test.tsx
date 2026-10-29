@@ -202,3 +202,98 @@ it('delegates an unconfirmed submission to its existing owner once during a slow
     'false',
   );
 });
+
+it('shares import feedback without repeating dismissed episodes during polling, and clears stale selection errors', async () => {
+  const user = userEvent.setup();
+  const input = sources();
+  const feedback = {
+    id: 1,
+    kind: 'failure' as const,
+    title: 'Unsupported files detected',
+    message: 'Choose another folder.',
+  };
+  const { rerender } = render(
+    <ApiNotifications {...input} importFeedback={feedback} />,
+  );
+  expect(screen.getByRole('heading')).toHaveTextContent(feedback.title);
+  expect(
+    screen.queryByRole('button', { name: 'Retry' }),
+  ).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+  rerender(
+    <ApiNotifications
+      {...input}
+      execution={{ ...input.execution, verifiedAt: 30 }}
+      importFeedback={feedback}
+    />,
+  );
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  rerender(
+    <ApiNotifications {...input} importFeedback={{ ...feedback, id: 2 }} />,
+  );
+  expect(screen.getByRole('heading')).toHaveTextContent(feedback.title);
+  rerender(<ApiNotifications {...input} importFeedback={null} />);
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+});
+
+it('keeps an API failure visible while retaining import feedback for after dismissal', async () => {
+  const user = userEvent.setup();
+  const input = sources();
+  input.health.status = 'API unavailable';
+  render(
+    <ApiNotifications
+      {...input}
+      importFeedback={{
+        id: 1,
+        kind: 'failure',
+        title: 'Import outcome unconfirmed',
+        message: 'Check status.',
+      }}
+    />,
+  );
+  expect(screen.getByRole('heading')).toHaveTextContent(
+    'Unable to reach the local API',
+  );
+  await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+  expect(screen.getByRole('heading')).toHaveTextContent(
+    'Import outcome unconfirmed',
+  );
+});
+
+it('expires a registration toast once and does not recreate it on unrelated state changes', async () => {
+  vi.useFakeTimers();
+  const input = sources();
+  const feedback = {
+    id: 1,
+    kind: 'recovery' as const,
+    title: 'Dataset registered',
+    message: 'Available for selection.',
+  };
+  const { rerender } = render(
+    <ApiNotifications {...input} importFeedback={feedback} />,
+  );
+  expect(screen.getByRole('heading')).toHaveTextContent('Dataset registered');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  rerender(<ApiNotifications {...input} importFeedback={feedback} />);
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+});
+
+it('shows confirmation feedback without duplicating the focused field announcement', () => {
+  render(
+    <ApiNotifications
+      {...sources()}
+      importFeedback={{
+        id: 1,
+        kind: 'failure',
+        title: 'Confirm the workload',
+        message:
+          'Acknowledge the included images and exclusions before importing.',
+        announce: false,
+      }}
+    />,
+  );
+  expect(screen.getByRole('heading')).toHaveTextContent('Confirm the workload');
+  expect(screen.getByRole('status')).toBeEmptyDOMElement();
+});
