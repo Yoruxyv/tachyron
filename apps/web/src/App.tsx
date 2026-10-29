@@ -44,6 +44,8 @@ export default function App() {
           catalog={catalog}
           history={history}
           execution={execution}
+          importFeedback={importer.feedback}
+          importDialogOpen={importer.open}
         />
         <BenchmarkNotices
           catalog={catalog}
@@ -56,18 +58,9 @@ export default function App() {
           importing={importer.busy}
           importAction={
             <DatasetFolderPicker
-              disabled={importer.busy}
+              disabled={configurationLocked}
               choose={importer.choose}
             />
-          }
-          importPanel={
-            importer.selectionRevision > 0 || importer.identifier ? (
-              <DatasetImport
-                key={importer.selectionRevision}
-                importer={importer}
-                disabled={configurationLocked && !importer.busy}
-              />
-            ) : undefined
           }
           view={view}
           navigate={navigate}
@@ -84,10 +77,16 @@ export default function App() {
           health={health}
           jobVerified={jobVerified}
         />
-        {importer.busy && view !== 'experiments' && (
+        {importer.open && (
+          <DatasetImport
+            importer={importer}
+            disabled={configurationLocked && !importer.busy}
+          />
+        )}
+        {importer.busy && !importer.open && (
           <output>
             Dataset import active.{' '}
-            <button type="button" onClick={() => navigate('experiments')}>
+            <button type="button" onClick={importer.show}>
               Review import
             </button>
           </output>

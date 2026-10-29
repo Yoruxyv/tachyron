@@ -40,7 +40,7 @@ export default function DatasetFolderPicker({
           const files = Array.from(event.currentTarget.files ?? []);
           // Reset after capturing File objects so selecting the same folder fires change.
           event.currentTarget.value = '';
-          if (files.length > 0) void choose(files);
+          void choose(files);
         }}
       />
     </div>

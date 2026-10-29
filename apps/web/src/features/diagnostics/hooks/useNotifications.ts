@@ -12,12 +12,14 @@ import type { useApiHealth } from './useApiHealth';
 import type { useCatalog } from '@/features/datasets/hooks/useCatalog';
 import type { useHistory } from '@/features/history/hooks/useHistory';
 import type { useJob } from '@/features/benchmarks/hooks/useJob';
+import type { ImportFeedback } from '@/features/datasets/hooks/useDatasetImport';
 
 export interface NotificationSources {
   readonly health: ReturnType<typeof useApiHealth>;
   readonly catalog: ReturnType<typeof useCatalog>;
   readonly history: ReturnType<typeof useHistory>;
   readonly execution: ReturnType<typeof useJob>;
+  readonly importFeedback?: ImportFeedback | null;
 }
 type Toast = {
   readonly kind: 'failure' | 'recovery';
@@ -101,10 +103,12 @@ function failureToast(
 }
 
 function returnFocusToStatus() {
-  if (document.activeElement?.closest('.api-toast'))
-    document
-      .querySelector<HTMLButtonElement>('.workspace-connection')
-      ?.focus({ preventScroll: true });
+  if (document.activeElement?.closest('.api-toast')) {
+    const target =
+      document.querySelector<HTMLElement>('dialog[open] #import-title') ??
+      document.querySelector<HTMLElement>('.workspace-connection');
+    target?.focus({ preventScroll: true });
+  }
 }
 
 /** Own notification episodes independently of retry requests and their completion. */
@@ -299,25 +303,45 @@ function useConnectionRetry(
 export function useNotifications(sources: NotificationSources) {
   const availability = notificationAvailability(sources);
   const settling = requestsAreSettling(sources);
-  const { notice, announcement, dismiss } = useNotificationEpisode(
-    sources,
-    availability,
-    settling,
-  );
+  const api = useNotificationEpisode(sources, availability, settling);
+  const [importNotice, setImportNotice] = useState<ImportFeedback | null>(null);
+  useEffect(() => {
+    setImportNotice(sources.importFeedback ?? null);
+  }, [sources.importFeedback]);
+  useEffect(() => {
+    if (importNotice?.kind !== 'recovery') return;
+    const timer = setTimeout(() => setImportNotice(null), 5000);
+    return () => clearTimeout(timer);
+  }, [importNotice]);
+  // Connection failures retain priority and are never overwritten by import feedback.
+  const showImport = api.notice?.kind !== 'failure' && Boolean(importNotice);
+  const notice = showImport ? importNotice : api.notice;
+  const dismiss = () => {
+    if (!showImport) api.dismiss();
+    else {
+      returnFocusToStatus();
+      setImportNotice(null);
+    }
+  };
   const { retry, retrying, disabled } = useConnectionRetry(
     sources,
     availability,
     settling,
   );
+  const importAnnouncement =
+    importNotice?.announce === false
+      ? ''
+      : `${importNotice?.title ?? ''}. ${importNotice?.message ?? ''}`;
   return {
     notice,
-    announcement,
+    announcement: showImport ? importAnnouncement : api.announcement,
     dismiss,
     retry,
     retryDisabled: disabled,
     checking: retrying || settling,
     canRetry:
-      notice?.kind === 'failure' &&
-      (notice.retry || availability.meaningfulRetry),
+      !showImport &&
+      api.notice?.kind === 'failure' &&
+      (api.notice.retry || availability.meaningfulRetry),
   };
 }

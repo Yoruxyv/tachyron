@@ -13,10 +13,21 @@ browser signatures do not establish validity. No intermediate screen opens.
 Current Chromium, Firefox and Safari directory-input implementations are required;
 the native picker and empty-directory visibility vary by browser and platform.
 
-After selection, a contextual review lists relative paths and byte sizes, with
-50 files per page. Every selected entry starts included. Unsupported or unreadable
-entries require explicit exclusion; Tachyron never silently drops them. Confirm
-the included files and exclusion count before uploading. Exclusions record user
+After selection, one accessible modal inspects the folder before allowing review.
+Every entry must have a `.png`, `.jpg` or `.jpeg` extension and the corresponding
+PNG/JPEG signature; browser MIME types are not trusted. Any unsupported or unreadable
+entry blocks the entire folder, including hidden sidecars and renamed documents.
+The modal identifies relative paths and reasons, counts all offending entries and
+renders at most 50 per page in a scrollable list. Close it or choose another folder;
+unsupported entries cannot be excluded and rejected selections are never hashed or
+uploaded. Empty/unusable selections have an actionable message. Browser checks
+are preflight only: a corrupt image with a plausible header still requires full
+server validation. No browser can inspect entries its native picker does not return.
+
+Supported selections show relative paths and byte sizes, with 50 files per page.
+Every image starts included; users may explicitly exclude supported images.
+Confirm the included files and exclusion count before uploading. Missing consent
+has inline guidance, focus and one restrained notification. Exclusions record user
 intent, not proof of the source folder's complete contents. The browser cannot
 reliably establish original filesystem symlink identity; the server only accepts
 bounded file bytes and creates its own regular files.
@@ -25,6 +36,13 @@ A browser worker hashes originals one file at a time. XMLHttpRequest supplies
 actual transfer progress. Transfer completion is distinct from server validation
 and durable registration. A READY receipt adds the immutable dataset to the
 catalog and selects it immediately when benchmark configuration is unlocked.
+READY closes the modal, clears the review controls and produces one success toast.
+Restoring a READY receipt after reload neither opens obsolete review nor repeats
+that toast. API failures and import notices share the diagnostics notification
+owner; important API failures retain priority. Toasts remain reachable inside the
+modal. Active/unconfirmed imports cannot be dismissed with Escape or Close: use
+explicit cancellation, then wait for its confirmed receipt. Status retry is offered
+for unavailable policy or unconfirmed/error outcomes, not completed registrations.
 Confirmed registrations survive older catalog responses. A new folder clears
 prior review/confirmation, including selection of the same folder again.
 

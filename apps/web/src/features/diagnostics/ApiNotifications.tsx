@@ -2,9 +2,20 @@ import {
   useNotifications,
   type NotificationSources,
 } from './hooks/useNotifications';
+import { useLayoutEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /** One stable toast per failure episode; request owners retain errors and recovery state. */
-export default function ApiNotifications(sources: NotificationSources) {
+export default function ApiNotifications({
+  importDialogOpen = false,
+  ...sources
+}: NotificationSources & { readonly importDialogOpen?: boolean }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setTarget(
+      importDialogOpen ? document.getElementById('import-notifications') : null,
+    );
+  }, [importDialogOpen]);
   const {
     notice,
     announcement,
@@ -14,7 +25,7 @@ export default function ApiNotifications(sources: NotificationSources) {
     checking,
     canRetry,
   } = useNotifications(sources);
-  return (
+  return createPortal(
     <>
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {announcement}
@@ -43,6 +54,7 @@ export default function ApiNotifications(sources: NotificationSources) {
           </div>
         </section>
       )}
-    </>
+    </>,
+    target ?? document.body,
   );
 }

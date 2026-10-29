@@ -44,7 +44,8 @@ is introduced. Keep this local API on loopback.
   mode, submission, durable batch progress, accounting, and cancellation. The
   compact Import folder action opens the native folder picker immediately; the
   dataset selector stays below it. Contextual review preserves all selected
-  relative paths, requires explicit exclusions and workload confirmation, and
+  relative paths in a modal, rejects the entire folder for any unsupported entry,
+  allows explicit exclusions of supported images, requires workload confirmation, and
   separates upload progress from validation and durable registration. Imported
   datasets persist across API restarts. See [dataset imports](dataset-imports.md)
   for limits, supported browsers, cancellation and recovery behavior.

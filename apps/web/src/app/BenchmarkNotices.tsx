@@ -68,8 +68,8 @@ function DatasetAvailability({ catalog }: Pick<Props, 'catalog'>) {
 
   return (
     <p className="notice">
-      No datasets registered. Configure TACHYRON_DATASETS on the local server,
-      then restart it and retry datasets.{' '}
+      No datasets registered. Import an image folder through Experiments, or
+      configure TACHYRON_DATASETS on the local server.{' '}
       <button type="button" onClick={catalog.reload} disabled={catalog.loading}>
         Retry datasets
       </button>

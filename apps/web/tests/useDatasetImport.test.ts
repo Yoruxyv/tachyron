@@ -5,6 +5,7 @@ import * as api from '@/api/datasetImports';
 import type { ImportOperation } from '@/api/datasetImports';
 import { useDatasetImport } from '@/features/datasets/hooks/useDatasetImport';
 import { dataset } from './fixtures';
+import { imageFile } from './importFixtures';
 
 const id = '12345678-1234-4234-8234-123456789abc';
 function receipt(state: ImportOperation['state']): ImportOperation {
@@ -18,14 +19,7 @@ function receipt(state: ImportOperation['state']): ImportOperation {
   };
 }
 function selectedFile() {
-  const file = new File(['image'], 'a.png');
-  Object.defineProperty(file, 'webkitRelativePath', { value: 'source/a.png' });
-  const blob = file.slice();
-  Object.defineProperty(blob, 'arrayBuffer', {
-    value: () => Promise.resolve(new Uint8Array([137, 80, 78, 71]).buffer),
-  });
-  vi.spyOn(file, 'slice').mockReturnValue(blob);
-  return file;
+  return imageFile('a.png');
 }
 class PreparationWorker {
   static readonly instances: PreparationWorker[] = [];
@@ -293,4 +287,97 @@ it('pauses failed polling and resumes the same operation without uploading again
   expect(result.current.operation?.state).toBe('CANCELLED');
   expect(result.current.busy).toBe(false);
   expect(upload).not.toHaveBeenCalled();
+});
+
+it('does not hash or upload an unsupported folder even if an entry is explicitly toggled off', async () => {
+  const upload = vi.spyOn(api, 'uploadImport');
+  const ready = vi.fn();
+  const { result } = renderHook(() => useDatasetImport(ready));
+  await waitFor(() => expect(result.current.policy).not.toBeNull());
+  await act(() =>
+    result.current.choose([imageFile(), imageFile('report.pdf')]),
+  );
+  const index = result.current.files.findIndex((entry) => entry.unsupported);
+  expect(index).toBeGreaterThanOrEqual(0);
+  act(() => result.current.toggle(index));
+  act(() => result.current.start());
+  expect(PreparationWorker.instances).toHaveLength(0);
+  expect(upload).not.toHaveBeenCalled();
+  expect(ready).not.toHaveBeenCalled();
+});
+
+it('ignores a slow rejected inspection after another valid folder is selected', async () => {
+  const slow = imageFile('spoof.jpg');
+  let finish: ((value: ArrayBuffer) => void) | undefined;
+  const blob = slow.slice();
+  Object.defineProperty(blob, 'arrayBuffer', {
+    value: () =>
+      new Promise<ArrayBuffer>((resolve) => {
+        finish = resolve;
+      }),
+  });
+  vi.mocked(slow.slice).mockReturnValue(blob);
+  const { result } = renderHook(() => useDatasetImport(vi.fn()));
+  let previous: Promise<void> | undefined;
+  act(() => {
+    previous = result.current.choose([slow]);
+  });
+  await act(() => result.current.choose([imageFile('new.png')]));
+  await act(async () => {
+    finish?.(new Uint8Array([37, 80, 68, 70]).buffer);
+    await previous;
+  });
+  expect(result.current.files.map((entry) => entry.file.name)).toEqual([
+    'new.png',
+  ]);
+  expect(result.current.error).toBe('');
+  expect(result.current.feedback).toBeNull();
+});
+
+it('keeps count, aggregate byte and per-file limits before creating a hashing worker', async () => {
+  vi.mocked(api.getImportPolicy).mockResolvedValue({
+    max_files: 1,
+    max_file_bytes: 8,
+    max_total_bytes: 8,
+    receive_seconds: 600,
+    image_seconds: 60,
+  });
+  const { result } = renderHook(() => useDatasetImport(vi.fn()));
+  await waitFor(() => expect(result.current.policy).not.toBeNull());
+  await act(() =>
+    result.current.choose([imageFile('a.png'), imageFile('b.png')]),
+  );
+  act(() => result.current.start());
+  expect(PreparationWorker.instances).toHaveLength(0);
+  act(() => result.current.toggle(0));
+  act(() => result.current.start());
+  expect(PreparationWorker.instances).toHaveLength(1);
+  await act(() => result.current.cancel());
+  await act(() =>
+    result.current.choose([
+      imageFile('large.png', [137, 80, 78, 71, 13, 10, 26, 10, 0]),
+    ]),
+  );
+  expect(result.current.files[0]?.problem).toBe(
+    'File size exceeds import limits',
+  );
+  act(() => result.current.start());
+  expect(PreparationWorker.instances).toHaveLength(1);
+});
+
+it('emits success only for a newly initiated READY operation, closes review and retains its receipt', async () => {
+  vi.spyOn(api, 'getImport').mockImplementation(() => new Promise(() => {}));
+  vi.spyOn(api, 'uploadImport').mockResolvedValue(receipt('READY'));
+  const ready = vi.fn();
+  const { result } = renderHook(() => useDatasetImport(ready));
+  await waitFor(() => expect(result.current.policy).not.toBeNull());
+  await act(() => result.current.choose([imageFile()]));
+  act(() => result.current.start());
+  act(() => PreparationWorker.current?.complete());
+  await waitFor(() => expect(result.current.operation?.state).toBe('READY'));
+  expect(result.current.open).toBe(false);
+  expect(result.current.files).toEqual([]);
+  expect(result.current.feedback?.title).toBe('Dataset registered');
+  expect(ready).toHaveBeenCalledExactlyOnceWith(dataset);
+  expect(sessionStorage.getItem('tachyron.import.v1')).toBe(id);
 });
