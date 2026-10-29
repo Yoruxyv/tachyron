@@ -61,6 +61,7 @@ beforeEach(() => {
     max_files: 1000,
     max_file_bytes: 33554432,
     max_total_bytes: 536870912,
+    metadata_bytes: 524288,
     receive_seconds: 600,
     image_seconds: 60,
   });
@@ -242,6 +243,7 @@ describe('native folder import workflow', () => {
         max_files: 1000,
         max_file_bytes: 7,
         max_total_bytes: 536870912,
+        metadata_bytes: 524288,
         receive_seconds: 600,
         image_seconds: 60,
       });

@@ -353,6 +353,52 @@ describe('dashboard behavior', () => {
     expect(screen.getByText('1 · 2 · 4 · 8 workers')).toBeVisible();
   });
 
+  it.each([
+    undefined,
+    {
+      ...request,
+      width: 17,
+      height: 19,
+      seed: 7,
+      sampling_interval: 0.25,
+      tiny: true,
+      repetitions: 1,
+    },
+  ])('submits defaults or the exact retained request (%j)', async (pending) => {
+    const user = userEvent.setup();
+    const submit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <JobForm
+        datasets={[dataset]}
+        datasetId={dataset.dataset_id}
+        selectDataset={vi.fn()}
+        disabled={false}
+        pending={pending}
+        submit={submit}
+      />,
+    );
+    const expected = pending ?? request;
+    expect(screen.getByLabelText('Width (px)')).toHaveValue(expected.width);
+    expect(screen.getByLabelText('Height (px)')).toHaveValue(expected.height);
+    expect(
+      screen.getByLabelText('Measured repetitions per worker'),
+    ).toHaveValue(expected.repetitions);
+    expect(
+      screen.getByText(
+        new RegExp(
+          `Seed ${expected.seed} · sample interval ${expected.sampling_interval} s`,
+          'u',
+        ),
+      ),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole('button', {
+        name: pending ? 'Retry same submission' : /Run experiment/,
+      }),
+    );
+    expect(submit).toHaveBeenCalledExactlyOnceWith(expected);
+  });
+
   it('validates controls before submission and does not invent a worker request field', async () => {
     const user = userEvent.setup();
     const submit = vi

@@ -297,7 +297,9 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
         setError('Unable to prepare files.');
         return;
       }
-      if (new TextEncoder().encode(data.metadata).length > 524288) {
+      if (
+        new TextEncoder().encode(data.metadata).length > policy.metadata_bytes
+      ) {
         setError('Selection metadata is too large. Choose a smaller folder.');
         return;
       }

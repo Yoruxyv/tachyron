@@ -13,6 +13,12 @@ environment variables. Use the tiny generated dataset in
 [processing](processing.md#reproducible-example), or your own PNG/JPEG dataset.
 Clients supply identifiers, never input/output paths.
 
+Embedded applications can import `Settings` from `tachyron.settings` and pass it
+to `create_app(Settings(...))`. The previous `tachyron.jobs.coordinator.Settings`
+import remains compatible. Settings owns operator configuration; benchmark defaults
+remain in `benchmarking.models`, and processing/import policies remain in their
+respective domains. See the [configuration audit](ssot-configuration-audit.md).
+
 ```powershell
 uv sync --locked --project apps/server --extra api
 $env:TACHYRON_DATASETS = '{"example":"datasets/example"}'

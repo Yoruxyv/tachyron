@@ -44,6 +44,9 @@ class TransformConfig:
             raise ValueError("Only lossless PNG output is supported")
 
 
+DEFAULT_TRANSFORM = TransformConfig()
+
+
 @dataclass(frozen=True, slots=True)
 class ResourceLimits:
     """Local safety caps; callers may deliberately choose smaller workloads."""

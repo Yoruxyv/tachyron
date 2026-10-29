@@ -13,6 +13,7 @@ from tachyron.processing import (
     build_manifest,
     run_sequential,
 )
+from tachyron.processing.models import DEFAULT_TRANSFORM
 from tachyron.workers import WorkerExecutionError, run_parallel
 
 
@@ -36,8 +37,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         required=True,
         help="New output directory outside the dataset (parent must exist)",
     )
-    parser.add_argument("--width", type=int, default=256)
-    parser.add_argument("--height", type=int, default=256)
+    parser.add_argument("--width", type=int, default=DEFAULT_TRANSFORM.width)
+    parser.add_argument("--height", type=int, default=DEFAULT_TRANSFORM.height)
     parser.add_argument(
         "--workers",
         type=int,

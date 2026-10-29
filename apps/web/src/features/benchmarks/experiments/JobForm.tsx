@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode, type SubmitEvent } from 'react';
 
 import {
+  workers,
   type Dataset,
   type RunRequest,
   type WorkerCount,
@@ -9,6 +10,19 @@ import Select from '@/components/Select';
 
 import DatasetSelect from '@/features/datasets/components/DatasetSelect';
 import WorkerSelector from '../results/WorkerSelector';
+
+// Browser defaults and hints mirror RunRequest; the server validates every submission.
+const defaults: Omit<RunRequest, 'dataset_id'> = {
+  operation: 'resize-grayscale-v1',
+  width: 256,
+  height: 256,
+  repetitions: 5,
+  seed: 2026,
+  sampling_interval: 0.1,
+  tiny: false,
+};
+const dimensions = { minimum: 1, maximum: 4096 };
+const repetitionsRange = { minimum: 5, tinyMinimum: 1, maximum: 20 };
 
 interface Props {
   readonly importAction?: ReactNode;
@@ -39,10 +53,10 @@ export default function JobForm({
   importAction,
 }: Props) {
   const id = useId();
-  const [width, setWidth] = useState('256');
-  const [height, setHeight] = useState('256');
-  const [repetitions, setRepetitions] = useState('5');
-  const [tiny, setTiny] = useState(false);
+  const [width, setWidth] = useState(String(defaults.width));
+  const [height, setHeight] = useState(String(defaults.height));
+  const [repetitions, setRepetitions] = useState(String(defaults.repetitions));
+  const [tiny, setTiny] = useState(defaults.tiny);
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(!compact);
   const selected = pending?.dataset_id ?? datasetId;
@@ -50,20 +64,20 @@ export default function JobForm({
     event.preventDefault();
     if (disabled) return;
     const request: RunRequest = pending ?? {
+      ...defaults,
       dataset_id: selected,
-      operation: 'resize-grayscale-v1',
       width: Number(width),
       height: Number(height),
       repetitions: Number(repetitions),
-      seed: 2026,
-      sampling_interval: 0.1,
       tiny,
     };
     const dataset = datasets.find(
       (item) => item.dataset_id === request.dataset_id,
     );
     const validDimension = (value: number) =>
-      Number.isInteger(value) && value >= 1 && value <= 4096;
+      Number.isInteger(value) &&
+      value >= dimensions.minimum &&
+      value <= dimensions.maximum;
     if (
       !pending &&
       (dataset?.error_code !== null ||
@@ -71,11 +85,12 @@ export default function JobForm({
         !validDimension(request.width) ||
         !validDimension(request.height) ||
         !Number.isInteger(request.repetitions) ||
-        request.repetitions < (tiny ? 1 : 5) ||
-        request.repetitions > 20)
+        request.repetitions <
+          (tiny ? repetitionsRange.tinyMinimum : repetitionsRange.minimum) ||
+        request.repetitions > repetitionsRange.maximum)
     ) {
       setError(
-        'Choose an available dataset, dimensions from 1 to 4096, and 5–20 measured repetitions (1–20 for a tiny functional test).',
+        `Choose an available dataset, dimensions from ${dimensions.minimum} to ${dimensions.maximum}, and ${repetitionsRange.minimum}–${repetitionsRange.maximum} measured repetitions (${repetitionsRange.tinyMinimum}–${repetitionsRange.maximum} for a tiny functional test).`,
       );
       setSettingsOpen(true);
       return;
@@ -116,11 +131,11 @@ export default function JobForm({
             <Select
               id={`${id}-operation`}
               label="Processing operation"
-              value="resize-grayscale-v1"
+              value={defaults.operation}
               onChange={() => undefined}
               disabled={disabled || Boolean(pending)}
               options={[
-                { value: 'resize-grayscale-v1', label: 'Resize + Grayscale' },
+                { value: defaults.operation, label: 'Resize + Grayscale' },
               ]}
             />
           </div>
@@ -159,8 +174,8 @@ export default function JobForm({
                   <span>Width (px)</span>
                   <input
                     type="number"
-                    min="1"
-                    max="4096"
+                    min={dimensions.minimum}
+                    max={dimensions.maximum}
                     required
                     value={pending?.width ?? width}
                     onChange={(event) => setWidth(event.target.value)}
@@ -170,8 +185,8 @@ export default function JobForm({
                   <span>Height (px)</span>
                   <input
                     type="number"
-                    min="1"
-                    max="4096"
+                    min={dimensions.minimum}
+                    max={dimensions.maximum}
                     required
                     value={pending?.height ?? height}
                     onChange={(event) => setHeight(event.target.value)}
@@ -182,8 +197,12 @@ export default function JobForm({
                 <span>Measured repetitions per worker</span>
                 <input
                   type="number"
-                  min={tiny ? 1 : 5}
-                  max="20"
+                  min={
+                    tiny
+                      ? repetitionsRange.tinyMinimum
+                      : repetitionsRange.minimum
+                  }
+                  max={repetitionsRange.maximum}
                   required
                   value={pending?.repetitions ?? repetitions}
                   onChange={(event) => setRepetitions(event.target.value)}
@@ -209,7 +228,8 @@ export default function JobForm({
           </p>
         )}
         <p className={compact ? 'matrix-label sr-only' : 'matrix-label'}>
-          Execution matrix <span className="mono">1 · 2 · 4 · 8 workers</span>
+          Execution matrix{' '}
+          <span className="mono">{workers.join(' · ')} workers</span>
         </p>
         {error && (
           <p role="alert" className="error">
@@ -225,8 +245,8 @@ export default function JobForm({
         </button>
         <p className="fine-print">
           {compact
-            ? 'Measured locally · full 1/2/4/8-worker matrix.'
-            : 'One warm-up, then measured repetitions per configuration. Resize + grayscale uses Lanczos. Seed 2026 · sample interval 0.1 s. All four configurations run on this machine.'}
+            ? `Measured locally · full ${workers.join('/')}-worker matrix.`
+            : `One warm-up, then measured repetitions per configuration. Resize + grayscale uses Lanczos. Seed ${pending?.seed ?? defaults.seed} · sample interval ${pending?.sampling_interval ?? defaults.sampling_interval} s. All four configurations run on this machine.`}
         </p>
       </form>
     </section>

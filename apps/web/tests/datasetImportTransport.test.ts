@@ -133,11 +133,36 @@ it('does not turn malformed proxy responses into proof of non-admission', async 
   xhr.onload?.();
   await expect(result).rejects.toMatchObject({ status: 0, code: '' });
 });
+it.each([undefined, -1, 0.5, '524288', null])(
+  'rejects invalid metadata policy without a browser fallback (%j)',
+  async (metadata_bytes) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            max_files: 1,
+            max_file_bytes: 1024,
+            max_total_bytes: 1024,
+            metadata_bytes,
+            receive_seconds: 7,
+            image_seconds: 3,
+          }),
+        ),
+      ),
+    );
+    await expect(getImportPolicy(new AbortController().signal)).rejects.toThrow(
+      'Invalid import count.',
+    );
+  },
+);
+
 it('decodes policy and cancellation through the protected JSON transport', async () => {
   const policy = {
     max_files: 1000,
     max_file_bytes: 33554432,
     max_total_bytes: 536870912,
+    metadata_bytes: 524288,
     receive_seconds: 600,
     image_seconds: 60,
   };
