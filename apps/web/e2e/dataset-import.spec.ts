@@ -41,27 +41,31 @@ async function capture(page: Page, testInfo: TestInfo, state: string) {
           (element) => element.scrollWidth <= element.clientWidth,
         ),
       ).toBe(true);
-    const confirmation = page.locator('.import-confirmation');
-    if (await confirmation.count()) {
-      const group = await confirmation.boundingBox();
-      const nameField = await page
-        .getByRole('textbox', { name: 'Dataset name' })
-        .boundingBox();
-      const checkbox = await confirmation.getByRole('checkbox').boundingBox();
-      const text = await confirmation.locator('span').boundingBox();
-      if (!group || !nameField || !checkbox || !text)
-        throw new Error('Missing confirmation group');
-      expect(Math.abs(group.x - nameField.x)).toBeLessThan(1);
-      expect(text.x - checkbox.x - checkbox.width).toBe(9);
-      expect(
-        Math.abs(checkbox.y + checkbox.height / 2 - text.y - text.height / 2),
-      ).toBeLessThan(1);
-    }
+    await assertConfirmationLayout(page);
     await page.screenshot({
       path: testInfo.outputPath(`dataset-import-${state}-${width}.png`),
       fullPage: true,
     });
   }
+}
+
+/** Checks confirmation geometry when the import review controls are present. */
+async function assertConfirmationLayout(page: Page) {
+  const confirmation = page.locator('.import-confirmation');
+  if (!(await confirmation.count())) return;
+  const group = await confirmation.boundingBox();
+  const nameField = await page
+    .getByRole('textbox', { name: 'Dataset name' })
+    .boundingBox();
+  const checkbox = await confirmation.getByRole('checkbox').boundingBox();
+  const text = await confirmation.locator('span').boundingBox();
+  if (!group || !nameField || !checkbox || !text)
+    throw new Error('Missing confirmation group');
+  expect(Math.abs(group.x - nameField.x)).toBeLessThan(1);
+  expect(text.x - checkbox.x - checkbox.width).toBe(9);
+  expect(
+    Math.abs(checkbox.y + checkbox.height / 2 - text.y - text.height / 2),
+  ).toBeLessThan(1);
 }
 
 test('opens the native picker directly with a compact responsive row and no modal on cancel', async ({
@@ -161,7 +165,7 @@ test('rejects the entire mixed folder, bounds offending paths, and permits valid
   await writeFile(path.join(valid, 'image.png'), png);
   await choose(page, valid, true);
   await expect(
-    page.getByRole('button', { name: 'Confirm and import 1 files' }),
+    page.getByRole('button', { name: 'Confirm and import 1 file' }),
   ).toBeEnabled();
   await expect(
     page.getByRole('heading', { name: 'Unsupported files detected' }),
@@ -316,12 +320,10 @@ test('leaves full corrupt-image validation to the server and retains the previou
   const previous = await selector.getAttribute('value');
   await choose(page, folder);
   await expect(
-    page.getByRole('button', { name: 'Confirm and import 1 files' }),
+    page.getByRole('button', { name: 'Confirm and import 1 file' }),
   ).toBeEnabled();
   await page.getByRole('checkbox', { name: /I confirm/ }).check();
-  await page
-    .getByRole('button', { name: 'Confirm and import 1 files' })
-    .click();
+  await page.getByRole('button', { name: 'Confirm and import 1 file' }).click();
   await expect(page.getByText('Import failed', { exact: true })).toBeVisible();
   await expect(
     page

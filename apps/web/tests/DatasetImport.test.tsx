@@ -105,6 +105,11 @@ describe('native folder import workflow', () => {
       }),
     ).toBeEnabled();
     expect(
+      within(dialog).getByRole('checkbox', { name: /I confirm/ }),
+    ).toHaveAccessibleName(
+      'I confirm 6 included files and 0 exclusions for this benchmark workload.',
+    );
+    expect(
       within(dialog).getByRole('heading', { name: 'Review dataset folder' }),
     ).toHaveFocus();
     expect(within(dialog).getByRole('status')).toHaveTextContent(
@@ -185,11 +190,17 @@ describe('native folder import workflow', () => {
       name: /nested\/image.png/,
     });
     const confirmation = screen.getByRole('checkbox', { name: /I confirm/ });
+    expect(confirmation).toHaveAccessibleName(
+      'I confirm 1 included file and 0 exclusions for this benchmark workload.',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Review 1 included file and confirm exclusions before uploading.',
+    );
     expect(
       screen.queryByText('Unsupported files detected'),
     ).not.toBeInTheDocument();
     await user.click(
-      screen.getByRole('button', { name: 'Confirm and import 1 files' }),
+      screen.getByRole('button', { name: 'Confirm and import 1 file' }),
     );
     expect(confirmation).toHaveFocus();
     expect(confirmation).toHaveAccessibleDescription(
@@ -198,6 +209,9 @@ describe('native folder import workflow', () => {
     await user.click(confirmation);
     await user.click(included);
     expect(confirmation).not.toBeChecked();
+    expect(confirmation).toHaveAccessibleName(
+      'I confirm 0 included files and 1 exclusion for this benchmark workload.',
+    );
     select([file]);
     expect(
       await screen.findByRole('checkbox', { name: /nested\/image.png/ }),
@@ -221,13 +235,42 @@ describe('native folder import workflow', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
+  it.each([1, 2])(
+    'reports file-limit problems with matching image wording (count: %i)',
+    async (count) => {
+      vi.mocked(api.getImportPolicy).mockResolvedValue({
+        max_files: 1000,
+        max_file_bytes: 7,
+        max_total_bytes: 536870912,
+        receive_seconds: 600,
+        image_seconds: 60,
+      });
+      await act(async () => {
+        render(<Harness />);
+      });
+      select(
+        Array.from({ length: count }, (_, index) => imageFile(`${index}.png`)),
+      );
+      const wording =
+        count === 1 ? '1 included image exceeds' : '2 included images exceed';
+      expect(
+        await screen.findByText(
+          `${wording} a file limit. Exclude them explicitly or choose another folder.`,
+        ),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: /Confirm and import/ }),
+      ).toBeDisabled();
+      expect(api.uploadImport).not.toHaveBeenCalled();
+    },
+  );
   it('preserves recovery and explicit cancellation while Escape cannot abandon validation', async () => {
     sessionStorage.setItem('tachyron.import.v1', identifier);
     vi.spyOn(api, 'getImport').mockResolvedValue(operation('VALIDATING'));
     vi.spyOn(api, 'cancelImport').mockResolvedValue(operation('CANCELLED'));
     const user = userEvent.setup();
     render(<Harness />);
-    expect(await screen.findByText('Validating 0/1 files')).toBeVisible();
+    expect(await screen.findByText('Validating 0/1 file')).toBeVisible();
     fireEvent(
       screen.getByRole('dialog'),
       new Event('cancel', { cancelable: true }),
@@ -252,7 +295,7 @@ describe('native folder import workflow', () => {
     expect(sessionStorage.getItem('tachyron.import.v1')).toBe(identifier);
     select([imageFile()]);
     expect(
-      await screen.findByRole('button', { name: 'Confirm and import 1 files' }),
+      await screen.findByRole('button', { name: 'Confirm and import 1 file' }),
     ).toBeEnabled();
     expect(sessionStorage.getItem('tachyron.import.v1')).toBeNull();
   });
@@ -260,7 +303,7 @@ describe('native folder import workflow', () => {
     const { rerender } = render(<Harness />);
     select([imageFile()]);
     const confirm = await screen.findByRole('button', {
-      name: 'Confirm and import 1 files',
+      name: 'Confirm and import 1 file',
     });
     await waitFor(() => expect(confirm).toBeEnabled());
     rerender(<Harness locked />);
@@ -363,7 +406,7 @@ describe('native folder import workflow', () => {
       await screen.findByRole('checkbox', { name: /I confirm/ }),
     );
     await user.click(
-      screen.getByRole('button', { name: 'Confirm and import 1 files' }),
+      screen.getByRole('button', { name: 'Confirm and import 1 file' }),
     );
     expect(screen.getByText('Preparing originals: 0/1')).toBeVisible();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -382,7 +425,7 @@ describe('native folder import workflow', () => {
     await act(async () => {
       status?.(operation('VALIDATING'));
     });
-    expect(screen.getByText('Validating 0/1 files')).toBeVisible();
+    expect(screen.getByText('Validating 0/1 file')).toBeVisible();
     const dialog = screen.getByRole('dialog');
     fireEvent(dialog, new Event('cancel', { cancelable: true }));
     expect(dialog).toBeVisible();

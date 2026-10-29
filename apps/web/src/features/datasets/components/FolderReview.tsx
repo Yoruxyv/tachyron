@@ -18,6 +18,7 @@ export default function FolderReview({
   const bytes = included.reduce((total, entry) => total + entry.file.size, 0);
   const problems = included.filter((entry) => entry.problem);
   const excluded = files.length - included.length;
+  const fileNoun = included.length === 1 ? 'file' : 'files';
   const confirmed = useRef<HTMLInputElement>(null);
   const [acknowledgementError, setAcknowledgementError] = useState(false);
   useEffect(() => {
@@ -63,8 +64,11 @@ export default function FolderReview({
       <FilePages files={files} toggle={importer.toggle} />
       {problems.length > 0 && (
         <p className="request-error">
-          {problems.length} included images exceed a file limit. Exclude them
-          explicitly or choose another folder.
+          {problems.length}{' '}
+          {problems.length === 1
+            ? 'included image exceeds'
+            : 'included images exceed'}{' '}
+          a file limit. Exclude them explicitly or choose another folder.
         </p>
       )}
       {overLimit && (
@@ -83,8 +87,9 @@ export default function FolderReview({
           onChange={() => setAcknowledgementError(false)}
         />
         <span>
-          I confirm {included.length} included files and {excluded} exclusions
-          form this benchmark workload.
+          I confirm {included.length} included {fileNoun} and {excluded}{' '}
+          {excluded === 1 ? 'exclusion' : 'exclusions'} for this benchmark
+          workload.
         </span>
       </label>
       {acknowledgementError && (
@@ -107,7 +112,7 @@ export default function FolderReview({
           }
         }}
       >
-        Confirm and import {included.length} files
+        Confirm and import {included.length} {fileNoun}
       </button>
     </>
   );

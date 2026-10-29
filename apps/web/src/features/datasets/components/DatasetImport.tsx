@@ -172,12 +172,13 @@ function containFocus(event: KeyboardEvent, dialog: HTMLDialogElement) {
 }
 
 function statusText(importer: ReturnType<typeof useDatasetImport>): string {
+  const included = importer.files.filter((entry) => entry.included).length;
   if (importer.reviewing) return 'Inspecting selected folder entries…';
   if (importer.preparing)
-    return `Preparing originals: ${importer.prepared}/${importer.files.filter((entry) => entry.included).length}`;
+    return `Preparing originals: ${importer.prepared}/${included}`;
   const operation = importer.operation;
   if (operation?.state === 'VALIDATING')
-    return `Validating ${operation.progress.validated_files ?? 'unknown'}/${operation.progress.total_files ?? 'unknown'} files`;
+    return `Validating ${operation.progress.validated_files ?? 'unknown'}/${operation.progress.total_files ?? 'unknown'} ${operation.progress.total_files === 1 ? 'file' : 'files'}`;
   if (importer.uploading) return 'Transferring files; registration is pending.';
   if (operation) return `Import ${operation.state.toLowerCase()}`;
   if (importer.identifier) return 'Recovering recorded operation status…';
@@ -185,6 +186,6 @@ function statusText(importer: ReturnType<typeof useDatasetImport>): string {
     importer.files.length &&
     !importer.files.some((entry) => entry.unsupported)
   )
-    return `Review ${importer.files.filter((entry) => entry.included).length} included files and confirm exclusions before uploading.`;
+    return `Review ${included} included ${included === 1 ? 'file' : 'files'} and confirm exclusions before uploading.`;
   return '';
 }
