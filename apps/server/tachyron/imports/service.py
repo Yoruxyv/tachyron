@@ -209,14 +209,11 @@ class Session:
 
     def stop(self) -> None:
         """Join only the process object this session created; never target a raw PID."""
+        self._close_connection()
         process = self.process
-        if self.connection is not None:
-            if self._validated:
-                with suppress(OSError):
-                    self.connection.send_bytes(b"release")
-            self.connection.close()
-            self.connection = None
-        if process is not None and process.pid is not None:
+        if process is None:
+            return
+        if process.pid is not None:
             process.join(timeout=0.2)
             if process.is_alive():
                 process.terminate()
@@ -226,11 +223,18 @@ class Session:
                 process.join(timeout=5)
             if process.is_alive():
                 raise DatasetImportError("worker_unavailable", 503)
-            process.close()
-            self.process = None
-        elif process is not None:
-            process.close()
-            self.process = None
+        process.close()
+        self.process = None
+
+    def _close_connection(self) -> None:
+        """Signal release only after validation; retain a pipe whose close failed."""
+        if self.connection is None:
+            return
+        if self._validated:
+            with suppress(OSError):
+                self.connection.send_bytes(b"release")
+        self.connection.close()
+        self.connection = None
 
     def close(self) -> None:
         """Stop mutation before namespace cleanup and release quota only on success."""

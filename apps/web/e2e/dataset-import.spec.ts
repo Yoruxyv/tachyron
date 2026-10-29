@@ -6,6 +6,25 @@ test('opens the native folder picker directly and reviews an explicit workload a
   page,
 }, testInfo) => {
   const posts: string[] = [];
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(scriptURL: string | URL, options?: WorkerOptions) {
+        super(scriptURL, options);
+        this.addEventListener('message', (event: MessageEvent<unknown>) => {
+          document.documentElement.setAttribute(
+            'data-preparation-message',
+            JSON.stringify({
+              origin: event.origin,
+              sourceIsNull: event.source === null,
+              trusted: event.isTrusted,
+              targetIsWorker: event.target === this,
+            }),
+          );
+        });
+      }
+    };
+  });
   page.on('request', (request) => {
     if (
       request.method() === 'POST' &&
@@ -112,6 +131,40 @@ test('opens the native folder picker directly and reviews an explicit workload a
   ).toBeDisabled();
   expect(posts).toHaveLength(0);
   await sidecar.uncheck();
+  await page.route('http://localhost:4174/message-probe', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<script>
+        const forge = () => parent.postMessage({
+          kind: 'complete', metadata: '{}', digest: '0'.repeat(64)
+        }, '*');
+        forge();
+        setInterval(forge, 50);
+      </script>`,
+    }),
+  );
+  const foreignOrigin = await page.evaluate(
+    () =>
+      new Promise<string>((resolve) => {
+        const frame = document.createElement('iframe');
+        frame.id = 'worker-message-probe';
+        frame.hidden = true;
+        const receive = (event: MessageEvent<unknown>) => {
+          if (
+            event.source !== frame.contentWindow ||
+            event.origin !== 'http://localhost:4174'
+          )
+            return;
+          window.removeEventListener('message', receive);
+          resolve(event.origin);
+        };
+        window.addEventListener('message', receive);
+        frame.src = 'http://localhost:4174/message-probe';
+        document.body.append(frame);
+      }),
+  );
+  expect(foreignOrigin).toBe('http://localhost:4174');
+  expect(posts).toHaveLength(0);
   await page.getByRole('checkbox', { name: /I confirm/ }).check();
   await choose();
   await expect(sidecar).toBeChecked();
@@ -143,6 +196,27 @@ test('opens the native folder picker directly and reviews an explicit workload a
     }),
   ).toBeVisible();
   expect(posts).toHaveLength(1);
+  const nativeMessage: unknown = JSON.parse(
+    (await page.locator('html').getAttribute('data-preparation-message')) ??
+      '{}',
+  );
+  expect(nativeMessage).toEqual({
+    origin: '',
+    sourceIsNull: true,
+    trusted: true,
+    targetIsWorker: true,
+  });
+  await testInfo.attach('dedicated-worker-message-boundary', {
+    body: JSON.stringify({
+      foreignOrigin,
+      nativeMessage,
+      importPosts: posts.length,
+    }),
+    contentType: 'application/json',
+  });
+  await page
+    .locator('#worker-message-probe')
+    .evaluate((frame) => frame.remove());
   const operationId = await page.evaluate(() =>
     sessionStorage.getItem('tachyron.import.v1'),
   );
