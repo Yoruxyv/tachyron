@@ -131,7 +131,7 @@ test('opens the native folder picker directly and reviews an explicit workload a
   ).toBeDisabled();
   expect(posts).toHaveLength(0);
   await sidecar.uncheck();
-  await page.route('http://localhost:4174/message-probe', (route) =>
+  await page.route('https://message-probe.invalid/', (route) =>
     route.fulfill({
       contentType: 'text/html',
       body: `<script>
@@ -152,18 +152,18 @@ test('opens the native folder picker directly and reviews an explicit workload a
         const receive = (event: MessageEvent<unknown>) => {
           if (
             event.source !== frame.contentWindow ||
-            event.origin !== 'http://localhost:4174'
+            event.origin !== 'https://message-probe.invalid'
           )
             return;
           window.removeEventListener('message', receive);
           resolve(event.origin);
         };
         window.addEventListener('message', receive);
-        frame.src = 'http://localhost:4174/message-probe';
+        frame.src = 'https://message-probe.invalid/';
         document.body.append(frame);
       }),
   );
-  expect(foreignOrigin).toBe('http://localhost:4174');
+  expect(foreignOrigin).toBe('https://message-probe.invalid');
   expect(posts).toHaveLength(0);
   await page.getByRole('checkbox', { name: /I confirm/ }).check();
   await choose();
