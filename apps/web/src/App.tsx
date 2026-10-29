@@ -65,6 +65,7 @@ export default function App() {
               <DatasetImport
                 key={importer.selectionRevision}
                 importer={importer}
+                disabled={configurationLocked && !importer.busy}
               />
             ) : undefined
           }

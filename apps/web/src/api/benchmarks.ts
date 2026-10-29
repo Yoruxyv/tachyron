@@ -13,6 +13,7 @@ export class ApiError extends Error {
     message: string,
     readonly status = 0,
     readonly retryAfter = 1000,
+    readonly code = '',
   ) {
     super(message);
   }

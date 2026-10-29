@@ -1,4 +1,5 @@
 /** Hash one bounded original at a time without blocking the dashboard. */
+export {};
 interface Preparation {
   files: File[];
   paths: string[];

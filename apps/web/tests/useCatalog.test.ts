@@ -8,6 +8,23 @@ import { useCatalog } from '@/features/datasets/hooks/useCatalog';
 import { dataset } from './fixtures';
 
 describe('dataset discovery ownership', () => {
+  it('retains a confirmed import when an older catalog snapshot arrives', async () => {
+    let finish: ((items: Dataset[]) => void) | undefined;
+    vi.spyOn(api, 'getDatasets').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const imported: Dataset = { ...dataset, dataset_id: 'import-confirmed' };
+    const { result } = renderHook(useCatalog);
+    act(() => result.current.acceptImported(imported));
+    await act(async () => {
+      finish?.([dataset]);
+    });
+    expect(result.current.datasets).toEqual([dataset, imported]);
+    expect(result.current.error).toBe('');
+  });
   it('loads only the catalog and aborts its request on unmount', async () => {
     const fetchCatalog = vi
       .spyOn(api, 'getDatasets')

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Dataset } from '@/api/contracts';
+import { ApiError } from '@/api/benchmarks';
 import {
   cancelImport,
   getImport,
@@ -48,11 +49,23 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
   const action = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const delivered = useRef('');
+  const observed = useRef<ImportOperation | null>(null);
   const ready = useRef(onReady);
   useEffect(() => {
     ready.current = onReady;
   }, [onReady]);
   const accept = useCallback((value: ImportOperation) => {
+    const previous = observed.current;
+    if (
+      previous?.operation_id === value.operation_id &&
+      (importTerminal(previous) ||
+        (previous.state === 'VALIDATING' && value.state === 'RECEIVING') ||
+        (previous.cancel_requested &&
+          !value.cancel_requested &&
+          !importTerminal(value)))
+    )
+      return;
+    observed.current = value;
     setOperation(value);
     if (importTerminal(value)) {
       setPolling(false);
@@ -137,6 +150,7 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
     setIdentifier('');
     setPolling(false);
     setOperation(null);
+    observed.current = null;
     setProgress(null);
     setPrepared(0);
     try {
@@ -191,16 +205,26 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
     setPreparing(true);
     setPrepared(0);
     setOperation(null);
-    const preparation = new Worker(
-      new URL('../prepare.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
-    worker.current = preparation;
-    preparation.onerror = () => {
-      preparation.terminate();
+    observed.current = null;
+    const failed = () => {
+      if (current !== generation.current) return;
+      worker.current?.terminate();
+      worker.current = null;
       setPreparing(false);
       setError('Unable to prepare files. Choose the folder again.');
     };
+    let preparation: Worker;
+    try {
+      preparation = new Worker(
+        new URL('../prepare.worker.ts', import.meta.url),
+        { type: 'module' },
+      );
+    } catch {
+      failed();
+      return;
+    }
+    worker.current = preparation;
+    preparation.onerror = failed;
     preparation.onmessage = (event: MessageEvent<unknown>) => {
       if (
         current !== generation.current ||
@@ -261,20 +285,72 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
         .then((value) => {
           if (current === generation.current) accept(value);
         })
-        .catch(() => {
-          if (current === generation.current && !controller.signal.aborted)
-            setError('Upload response unconfirmed. Check operation status.');
-        })
+        .catch((failure: unknown) =>
+          uploadFailed(failure, id, current, controller.signal),
+        )
         .finally(() => {
           if (current === generation.current) setUploading(false);
         });
     };
-    preparation.postMessage({
-      files: selected.map((entry) => entry.file),
-      paths: selected.map((entry) => entry.path),
-      displayName: name,
-      excluded: files.length - selected.length,
-    });
+    try {
+      preparation.postMessage({
+        files: selected.map((entry) => entry.file),
+        paths: selected.map((entry) => entry.path),
+        displayName: name,
+        excluded: files.length - selected.length,
+      });
+    } catch {
+      failed();
+    }
+  }
+  async function uploadFailed(
+    failure: unknown,
+    id: string,
+    current: number,
+    signal: AbortSignal,
+  ) {
+    if (
+      current !== generation.current ||
+      signal.aborted ||
+      (observed.current && importTerminal(observed.current))
+    )
+      return;
+    setError('Upload response unconfirmed. Check operation status.');
+    if (!(failure instanceof ApiError) || failure.status === 0) return;
+    try {
+      const value = await getImport(id, signal);
+      if (current === generation.current && !signal.aborted) accept(value);
+    } catch (error) {
+      if (
+        current !== generation.current ||
+        signal.aborted ||
+        !(error instanceof ApiError) ||
+        error.status !== 404 ||
+        ![
+          'import_busy',
+          'workload_busy',
+          'catalog_capacity',
+          'dataset_id_conflict',
+          'coordinator_unavailable',
+          'request_forbidden',
+          'invalid_host',
+          'invalid_request',
+          'invalid_multipart',
+        ].includes(failure.code)
+      )
+        return;
+      // An HTTP rejection has completed; a missing receipt proves no later publication.
+      setIdentifier('');
+      setOperation(null);
+      observed.current = null;
+      setPolling(false);
+      setError(failure.message);
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        setError('Import rejected. Reload recovery storage is unavailable.');
+      }
+    }
   }
   async function cancel() {
     if (reviewing || preparing) {
@@ -288,11 +364,19 @@ export function useDatasetImport(onReady: (dataset: Dataset) => void) {
     action.current?.abort();
     setUploading(false);
     if (!identifier) return;
+    const current = generation.current;
     try {
-      accept(await cancelImport(identifier, new AbortController().signal));
-      setPolling(true);
+      const value = await cancelImport(
+        identifier,
+        new AbortController().signal,
+      );
+      if (current !== generation.current) return;
+      accept(value);
+      if (!observed.current || !importTerminal(observed.current))
+        setPolling(true);
     } catch {
-      setError('Cancellation unconfirmed. Check operation status.');
+      if (current === generation.current)
+        setError('Cancellation unconfirmed. Check operation status.');
     }
   }
   return {

@@ -4,8 +4,10 @@ import type { useDatasetImport } from '../hooks/useDatasetImport';
 /** Review an explicit workload; server validation remains authoritative. */
 export default function DatasetImport({
   importer,
+  disabled = false,
 }: {
   readonly importer: ReturnType<typeof useDatasetImport>;
+  readonly disabled?: boolean;
 }) {
   const { files, operation } = importer;
   const [page, setPage] = useState(0);
@@ -114,6 +116,7 @@ export default function DatasetImport({
             className="primary"
             type="button"
             disabled={
+              disabled ||
               importer.busy ||
               Boolean(importer.identifier) ||
               !importer.policy ||

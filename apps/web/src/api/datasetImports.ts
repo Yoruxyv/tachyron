@@ -80,6 +80,8 @@ const messages: Record<string, string> = {
   unsupported_image: 'A selected image mode or frame count is unsupported.',
   resource_limit: 'An image exceeds the processing safety limits.',
   import_busy: 'Another import is active. Wait and try again.',
+  dataset_id_conflict:
+    'This import identifier is already registered. Choose the folder again.',
   workload_busy: 'A benchmark owns this host. Wait until it finishes.',
   upload_limit_exceeded: 'The upload exceeds a file or request limit.',
   dataset_capacity: 'Managed dataset capacity is full.',
@@ -101,7 +103,7 @@ async function failure(response: Response): Promise<never> {
   } catch {
     /* Untrusted error text is never displayed. */
   }
-  throw new ApiError(importMessage(code), response.status);
+  throw new ApiError(importMessage(code), response.status, 1000, code);
 }
 async function jsonRequest(
   url: string,
@@ -187,6 +189,8 @@ export function uploadImport(
                 typeof data.detail === 'string' ? data.detail : null,
               ),
               xhr.status,
+              1000,
+              typeof data.detail === 'string' ? data.detail : '',
             ),
           );
         } else resolve(parseImport(value));

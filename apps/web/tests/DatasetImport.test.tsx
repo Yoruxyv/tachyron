@@ -23,7 +23,11 @@ function Harness({ locked = false }: { readonly locked?: boolean }) {
         <option>Existing images</option>
       </select>
       {(importer.selectionRevision > 0 || importer.identifier) && (
-        <DatasetImport key={importer.selectionRevision} importer={importer} />
+        <DatasetImport
+          key={importer.selectionRevision}
+          importer={importer}
+          disabled={locked}
+        />
       )}
     </>
   );
@@ -188,5 +192,18 @@ describe('native folder import workflow', () => {
       screen.getByRole('button', { name: 'Import folder' }),
     ).toBeDisabled();
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  });
+  it('blocks import preparation if a benchmark starts after folder review', async () => {
+    const { rerender } = render(<Harness />);
+    fireEvent.change(screen.getByLabelText('Choose image folder'), {
+      target: { files: [image()] },
+    });
+    const confirm = await screen.findByRole('button', {
+      name: 'Confirm and import 1 files',
+    });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    rerender(<Harness locked />);
+    expect(confirm).toBeDisabled();
+    expect(api.uploadImport).not.toHaveBeenCalled();
   });
 });
