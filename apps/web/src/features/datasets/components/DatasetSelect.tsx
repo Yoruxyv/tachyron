@@ -32,7 +32,7 @@ export default function DatasetSelect({
         label:
           (header
             ? dataset.dataset_id
-            : dataset.dataset_id +
+            : (dataset.display_name ?? dataset.dataset_id) +
               ' · ' +
               (dataset.input_count ?? 'unavailable') +
               ' images') + (dataset.error_code ? ' · unavailable' : ''),

@@ -12,9 +12,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from tachyron.imports.models import DatasetImportError
+from tachyron.imports.routes import router as import_router
 from tachyron.jobs.coordinator import AdmissionError, Coordinator, Settings
 from tachyron.jobs.routes import router
 from tachyron.processing import ProcessingError
+from tachyron.request_security import LocalRequests
 
 
 async def health() -> dict[str, Literal["ok"]]:
@@ -50,6 +53,19 @@ async def storage_error(_request: Request, _error: Exception) -> JSONResponse:
     )
 
 
+async def import_error(_request: Request, error: Exception) -> JSONResponse:
+    """Return allowlisted import codes without reflected input or decoder details."""
+    rejection = cast("DatasetImportError", error)
+    body: dict[str, object] = {"detail": rejection.code}
+    if rejection.index is not None:
+        body["file_index"] = rejection.index
+    return JSONResponse(
+        body,
+        status_code=rejection.status,
+        headers={"Retry-After": "1"} if rejection.status in (429, 503) else None,
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create transport only; history, threads and pools belong to the lifespan.
 
@@ -80,6 +96,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(title="Tachyron", version="0.1.0", lifespan=lifespan)
     application.add_api_route("/health", health, methods=["GET"])
     application.include_router(router)
+    application.include_router(import_router)
+    application.add_middleware(LocalRequests)
+    application.add_exception_handler(DatasetImportError, import_error)
     application.add_exception_handler(AdmissionError, admission_error)
     application.add_exception_handler(RequestValidationError, validation_error)
     application.add_exception_handler(ProcessingError, processing_error)

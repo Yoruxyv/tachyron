@@ -20,6 +20,10 @@ import psutil
 from tachyron.benchmarking.exports import read_experiment
 from tachyron.benchmarking.models import BenchmarkError, RunRecord
 from tachyron.benchmarking.runner import run_experiment
+from tachyron.imports.models import TERMINAL as IMPORT_TERMINAL
+from tachyron.imports.models import DatasetImportError, ImportLimits, Operation
+from tachyron.imports.service import Session
+from tachyron.imports.storage import Catalog
 from tachyron.jobs.models import (
     TERMINAL,
     DatasetInfo,
@@ -47,6 +51,16 @@ class Settings:
     datasets: dict[str, Path] = field(default_factory=dict[str, Path])
     data_dir: Path = Path("results/api")
     queue_capacity: int = 2
+    dataset_dir: Path | None = None
+    import_limits: ImportLimits = field(default_factory=ImportLimits)
+    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "::1")
+    allowed_origins: tuple[str, ...] = (
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:4174",
+        "http://127.0.0.1:4173",
+    )
 
     def __post_init__(self) -> None:
         if len(self.datasets) > 32 or any(
@@ -71,7 +85,13 @@ class Settings:
             if not isinstance(name, str) or not isinstance(path, str):
                 raise TypeError("Dataset identifiers and roots must be strings")
             datasets[name] = Path(path)
-        return cls(datasets, Path(os.environ.get("TACHYRON_DATA_DIR", "results/api")))
+        return cls(
+            datasets,
+            Path(os.environ.get("TACHYRON_DATA_DIR", "results/api")),
+            dataset_dir=Path(
+                os.environ.get("TACHYRON_DATASET_DIR", "datasets/imported")
+            ),
+        )
 
 
 class AdmissionError(ValueError):
@@ -96,6 +116,9 @@ class Coordinator:
         self._thread: Thread | None = None
         self._manifests: dict[str, DatasetManifest] = {}
         self.datasets: list[DatasetInfo] = []
+        self.catalog: Catalog
+        self.import_session: Session | None = None
+        self._import_reserved = False
 
     def start(self) -> None:
         """Initialize history and discovery before accepting work; clean up on error.
@@ -107,18 +130,21 @@ class Coordinator:
         """
         if self._thread is not None:
             raise RuntimeError("Coordinator already started")
-        candidate = self.settings.data_dir.resolve()
-        for root in self.settings.datasets.values():
-            canonical = root.resolve()
-            if candidate.is_relative_to(canonical) or canonical.is_relative_to(
-                candidate
-            ):
-                raise ValueError("History and datasets must not overlap")
+        managed_path = self.settings.dataset_dir or self.settings.data_dir.with_name(
+            self.settings.data_dir.name + "-datasets"
+        )
+        self._check_storage_paths(managed_path)
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
         self.directory = dataset_root(self.settings.data_dir)
         self.store = HistoryStore(self.directory / "history.sqlite3")
         try:
+            self.catalog = Catalog(managed_path, self.settings.import_limits)
+            self.catalog.recover()
             self._discover()
+            if set(self.settings.datasets) & {
+                item.dataset_id for item in self.catalog.datasets()
+            }:
+                raise ValueError("Environment and managed dataset identifiers collide")
             self.store.recover(stamp())
             self._healthy = True
             self._thread = Thread(target=self._work, name="tachyron-jobs")
@@ -128,6 +154,22 @@ class Coordinator:
             self._healthy = False
             self.close()
             raise
+
+    def _check_storage_paths(self, managed_path: Path) -> None:
+        """Reject overlapping storage namespaces before opening or creating stores."""
+        candidate = self.settings.data_dir.resolve()
+        managed = managed_path.resolve()
+        roots = tuple(root.resolve() for root in self.settings.datasets.values())
+        if any(
+            managed.is_relative_to(other) or other.is_relative_to(managed)
+            for other in (candidate, *roots)
+        ):
+            raise ValueError("Managed datasets, history and inputs must not overlap")
+        if any(
+            candidate.is_relative_to(root) or root.is_relative_to(candidate)
+            for root in roots
+        ):
+            raise ValueError("History and datasets must not overlap")
 
     def _discover(self) -> None:
         """Freeze each allowlisted manifest; preserve unavailable dataset entries."""
@@ -159,9 +201,9 @@ class Coordinator:
                 if previous.request != request:
                     raise AdmissionError("idempotency_conflict", 409)
                 return previous
-            manifest = self._manifests.get(request.dataset_id)
-            if manifest is None:
-                raise AdmissionError("dataset_unavailable", 404)
+            if self._import_reserved:
+                raise AdmissionError("import_in_progress", 409)
+            manifest = self.resolve_manifest(request.dataset_id)
             manifest.limits.check_output(request.transform(), len(manifest.entries))
             if len(self._queue) >= self.settings.queue_capacity:
                 raise AdmissionError("queue_full", 429)
@@ -221,12 +263,28 @@ class Coordinator:
 
     def close(self) -> None:
         """Stop admission, cancel waiting jobs, then drain the active child pool."""
+        with self._condition:
+            self._closing = True
+            for signal in self._signals.values():
+                signal.set()
+            self._condition.notify_all()
+            session = self.import_session
+        if session is not None:
+            try:
+                session.cancel()
+            except DatasetImportError:
+                logger.warning("Import cancellation persistence failed during shutdown")
+            if not session.done.wait(
+                timeout=self.settings.import_limits.image_seconds + 15
+            ):
+                raise DatasetImportError("worker_unavailable", 503)
+            # The request owner has finished. Retry a previously failed reap
+            # before releasing storage ownership or admitting another owner.
+            if session.process is not None:
+                session.close()
+                self.release_import(session)
         try:
             with self._condition:
-                self._closing = True
-                for signal in self._signals.values():
-                    signal.set()
-                self._condition.notify_all()
                 for identifier in tuple(self._signals):
                     self.cancel(identifier)
         finally:
@@ -234,6 +292,64 @@ class Coordinator:
             if self._thread is not None and self._thread.ident is not None:
                 self._thread.join()
             self.store.close()
+            if hasattr(self, "catalog"):
+                self.catalog.close()
+
+    def begin_import(
+        self, identifier: str, digest: str, boundary: str
+    ) -> Session | Operation:
+        """Persist and attach the owner before helper startup can block or fail."""
+        with self._condition:
+            previous = self.catalog.replay(identifier, digest)
+            if previous is not None:
+                return previous
+            if self._closing or not self._healthy:
+                raise DatasetImportError("coordinator_unavailable", 503)
+            if self._signals or self._queue:
+                raise DatasetImportError("workload_busy", 409)
+            if self._import_reserved:
+                raise DatasetImportError("import_busy", 429)
+            if "import-" + identifier.replace("-", "") in self.settings.datasets:
+                raise DatasetImportError("dataset_id_conflict", 409)
+            session = Session(self.catalog, identifier, digest, boundary)
+            self.import_session = session
+            self._import_reserved = True
+            return session
+
+    def release_import(self, session: Session) -> None:
+        """Fail closed when the request finishes without confirming helper exit."""
+        with self._condition:
+            if self.import_session is not session:
+                raise RuntimeError("Import owner does not match")
+            if session.process is not None:
+                self._healthy = False
+                self._condition.notify_all()
+                return
+            self.import_session = None
+            self._import_reserved = False
+            self._condition.notify_all()
+
+    def cancel_import(self, identifier: str) -> Operation:
+        """Serialize cancellation with durable admission and session attachment."""
+        with self._condition:
+            session = self.import_session
+            if session is not None and session.identifier == identifier:
+                return session.cancel()
+            operation = self.catalog.get(identifier)
+            if operation.state in IMPORT_TERMINAL:
+                return operation
+            return self.catalog.update(
+                operation.model_copy(update={"cancel_requested": True})
+            )
+
+    def resolve_manifest(
+        self, identifier: str, expected: str | None = None
+    ) -> DatasetManifest:
+        """Resolve frozen environment or durable managed identity, never rediscover."""
+        manifest = self._manifests.get(identifier) or self.catalog.manifest(identifier)
+        if manifest is None or (expected is not None and manifest.sha256 != expected):
+            raise AdmissionError("dataset_unavailable", 404)
+        return manifest
 
     def _work(self) -> None:
         """Run one job at a time; a storage fault closes admission until restart."""
@@ -289,7 +405,7 @@ class Coordinator:
             parent.mkdir(mode=0o700)
             owned = True
             experiment = run_experiment(
-                self._manifests[job.request.dataset_id],
+                self.resolve_manifest(job.request.dataset_id, job.manifest_sha256),
                 directory,
                 job.request.transform(),
                 job.request.benchmark_config(),
@@ -334,7 +450,9 @@ class Coordinator:
         with suppress(BenchmarkError, OSError):
             experiment = read_experiment(directory / "runs.json")
             context = experiment.context
-            manifest = self._manifests[job.request.dataset_id]
+            manifest = self.resolve_manifest(
+                job.request.dataset_id, job.manifest_sha256
+            )
             if (
                 context.manifest_sha256 == job.manifest_sha256
                 and context.input_count == job.input_count

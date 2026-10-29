@@ -14,7 +14,8 @@ uv sync --locked --project apps/server --extra dev
 npm --prefix apps/web ci
 ```
 
-Register your own dataset and start the API in one terminal:
+Start the API in one terminal. Environment registration is optional when using
+browser folder import:
 
 ```powershell
 $env:TACHYRON_DATASETS = '{"example":"datasets/example"}'
@@ -40,7 +41,13 @@ is introduced. Keep this local API on loopback.
   and a real submission form. A disclosure exposes the full measured table and
   sample spread without displacing the main card grid. Empty metrics remain unavailable.
 - **Experiments:** dataset, fixed operation, dimensions, repetitions, tiny-test
-  mode, submission, durable batch progress, accounting, and cancellation.
+  mode, submission, durable batch progress, accounting, and cancellation. The
+  compact Import folder action opens the native folder picker immediately; the
+  dataset selector stays below it. Contextual review preserves all selected
+  relative paths, requires explicit exclusions and workload confirmation, and
+  separates upload progress from validation and durable registration. Imported
+  datasets persist across API restarts. See [dataset imports](dataset-imports.md)
+  for limits, supported browsers, cancellation and recovery behavior.
 - **Compare:** select one saved experiment and inspect 1/2/4/8-worker statistics
   with six Chart.js charts and a tabular alternative.
 - **History:** 20 terminal jobs per page, dataset/job-ID search, status filters,
@@ -105,7 +112,7 @@ Image counters count repeated attempts, not unique images. Cooperative cancellat
 waits for the current batch to drain; a late request can still end in completion.
 Failed/cancelled evidence never becomes a successful scaling comparison.
 
-The client combines owner cancellation with a ten-second request deadline, uses
+JSON requests combine owner cancellation with a ten-second request deadline, use
 one nonoverlapping polling chain, and starts at a one-second polling interval.
 Failures back off to 30 seconds, respecting bounded `Retry-After` delays of up to
 60 seconds. Five consecutive failures or 30 minutes pause polling; **Resume status

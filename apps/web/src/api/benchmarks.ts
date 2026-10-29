@@ -13,6 +13,7 @@ export class ApiError extends Error {
     message: string,
     readonly status = 0,
     readonly retryAfter = 1000,
+    readonly code = '',
   ) {
     super(message);
   }
@@ -47,7 +48,11 @@ async function request<T>(
     response = await fetch(url, {
       ...init,
       signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
-      headers: { Accept: 'application/json', ...init.headers },
+      headers: {
+        Accept: 'application/json',
+        'X-Tachyron-Request': '1',
+        ...init.headers,
+      },
     });
   } catch (error) {
     if (signal.aborted) throw error;

@@ -1698,3 +1698,61 @@ td small {
     scroll-behavior: auto !important;
   }
 }
+/* Folder review stays bounded on narrow screens. */
+.dataset-import {
+  min-width: 0;
+}
+.import-files {
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid var(--border, #303030);
+}
+.import-files ul {
+  list-style: none;
+  margin: 0;
+  padding: 0.75rem;
+}
+.import-files label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+}
+.import-files span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.import-files small {
+  display: block;
+  color: var(--muted, #999);
+}
+.import-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.dataset-import progress {
+  width: 100%;
+  accent-color: #ddd;
+}
+.dataset-import .mono {
+  overflow-wrap: anywhere;
+}
+.import-trigger {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0.4rem 0.75rem;
+}
+.import-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.import-guidance {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}

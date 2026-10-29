@@ -1,4 +1,4 @@
-import { useId, useState, type SubmitEvent } from 'react';
+import { useId, useState, type ReactNode, type SubmitEvent } from 'react';
 
 import {
   type Dataset,
@@ -11,6 +11,7 @@ import DatasetSelect from '@/features/datasets/components/DatasetSelect';
 import WorkerSelector from '../results/WorkerSelector';
 
 interface Props {
+  readonly importAction?: ReactNode;
   readonly datasets: Dataset[];
   readonly disabled: boolean;
   readonly pending: RunRequest | undefined;
@@ -35,6 +36,7 @@ export default function JobForm({
   selectWorker,
   datasetError = '',
   retryDatasets,
+  importAction,
 }: Props) {
   const id = useId();
   const [width, setWidth] = useState('256');
@@ -125,6 +127,7 @@ export default function JobForm({
           <div className={compact ? 'form-columns' : 'form-field'}>
             <div className="form-field">
               <label htmlFor={`${id}-dataset`}>Dataset</label>
+              {importAction}
               <DatasetSelect
                 id={`${id}-dataset`}
                 datasets={datasets}

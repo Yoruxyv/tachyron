@@ -26,7 +26,7 @@ from tachyron.processing import (
 )
 from tachyron.workers import WorkerExecutionError
 from tests.benchmark_helpers import make_manifest, sequential_pool
-from tests.job_helpers import BODY, terminal
+from tests.job_helpers import BODY, local_client, terminal
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[tuple[TestClient, Coordinator]]:
     monkeypatch.setattr(runner, "run_parallel", sequential_pool)
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         yield client, cast("Coordinator", client.app_state["coordinator"])
 
 
@@ -50,9 +50,9 @@ def test_completed_job_matches_cli_core_and_survives_restart(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runner, "run_parallel", sequential_pool)
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         completed, metrics = _assert_completed(client)
-    with TestClient(create_app(settings)) as restarted:
+    with local_client(create_app(settings)) as restarted:
         assert restarted.get(
             f"/api/jobs/{completed.id}"
         ).json() == completed.model_dump(mode="json")
@@ -267,7 +267,7 @@ def test_api_real_spawn_comparison_and_pool_cleanup(settings: Settings) -> None:
     # Start POSIX's interpreter-owned resource tracker before measuring pool cleanup.
     with multiprocessing.get_context("spawn").Lock():
         before = {child.pid for child in psutil.Process().children(recursive=True)}
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         response = client.post("/api/jobs", json=BODY)
         assert response.status_code == 202
         job = terminal(client, response.json()["id"])

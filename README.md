@@ -34,15 +34,20 @@ npm --prefix apps/web ci
 npm --prefix apps/web run dev
 ```
 
-Open [the application](http://127.0.0.1:5173). Register a dataset as described in
-[dashboard setup and tooling](docs/dashboard.md), then configure an experiment.
+Open [the application](http://127.0.0.1:5173). In Experiments, use **Import folder**
+to review and confirm an image workload, or use environment registration as
+described in [dashboard setup and tooling](docs/dashboard.md). Imported originals
+and registrations persist separately from benchmark history; see
+[dataset imports](docs/dataset-imports.md) for the API and storage contract.
 **API Tests → Check connection** checks process liveness.
 [GET /health](http://127.0.0.1:8000/health) returns `{"status":"ok"}`.
 This reports process liveness only; it says nothing about processing readiness.
 
 Both development servers bind to loopback. Vite proxies `/api` and `/health` to the local
 API, so no permissive CORS policy or browser environment secrets are needed.
-API requests time out after ten seconds (five for liveness); failures show a safe message and allow retry.
+JSON API requests time out after ten seconds (five for liveness); folder uploads
+use separate receive/validation budgets. Failures show safe messages and recovery
+actions. Mutating API scripts must send `X-Tachyron-Request: 1`.
 Stop either server with Ctrl+C.
 
 For an API-only environment, install `--extra api` instead of `--extra dev`.

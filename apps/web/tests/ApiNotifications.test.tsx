@@ -19,6 +19,7 @@ function sources(): Props {
     },
     catalog: {
       datasets: [],
+      acceptImported: vi.fn(),
       error: '',
       loading: false,
       verifiedAt: 20,

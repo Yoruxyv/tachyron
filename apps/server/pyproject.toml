@@ -24,7 +24,7 @@ tachyron-process = "tachyron.cli:main"
 tachyron-benchmark = "tachyron.benchmark_cli:main"
 
 [project.optional-dependencies]
-api = ["fastapi>=0.115,<1", "pydantic>=2.10,<3", "uvicorn>=0.34,<1"]
+api = ["fastapi>=0.115,<1", "pydantic>=2.10,<3", "uvicorn>=0.34,<1", "python-multipart==0.0.32"]
 dev = [
     "tachyron[api]",
     "pyright>=1.1.400,<2",

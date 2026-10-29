@@ -5,6 +5,7 @@ from time import monotonic, sleep
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.types import ASGIApp
 
 from tachyron.jobs.models import Job
 
@@ -28,3 +29,10 @@ def terminal(client: TestClient, identifier: str) -> Job:
             return job
         sleep(0.01)
     pytest.fail("Job did not reach a terminal state")
+
+
+def local_client(app: ASGIApp) -> TestClient:
+    """Use the documented native-client request header and a loopback Host."""
+    return TestClient(
+        app, base_url="http://127.0.0.1", headers={"X-Tachyron-Request": "1"}
+    )

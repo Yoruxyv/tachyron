@@ -15,7 +15,6 @@ from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
 
 from tachyron.api import create_app
 from tachyron.benchmarking import runner
@@ -31,7 +30,7 @@ from tachyron.processing import (
     TransformConfig,
 )
 from tests.benchmark_helpers import example_experiment, make_manifest, sequential_pool
-from tests.job_helpers import BODY, terminal
+from tests.job_helpers import BODY, local_client, terminal
 
 
 def saved_job(**updates: object) -> Job:
@@ -113,7 +112,7 @@ def test_failed_admission_rolls_back_queue_and_can_be_retried(
     manifest = make_manifest(tmp_path / "input")
     settings = Settings({"tiny": manifest.root}, tmp_path / "history")
     monkeypatch.setattr(runner, "run_parallel", sequential_pool)
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         manager = cast("Coordinator", client.app_state["coordinator"])
         original = manager.store.save
         with monkeypatch.context() as patch:
@@ -138,7 +137,7 @@ def test_storage_fault_stops_consumer_and_reports_unavailable_until_recovery(
 ) -> None:
     manifest = make_manifest(tmp_path / "input")
     settings = Settings({"tiny": manifest.root}, tmp_path / "history")
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         manager = cast("Coordinator", client.app_state["coordinator"])
         save = manager.store.save
 
@@ -284,7 +283,7 @@ def test_output_collision_cannot_import_preexisting_experiment_evidence(
     manifest = make_manifest(tmp_path / "input")
     monkeypatch.setattr(runner, "run_parallel", sequential_pool)
     settings = Settings({"tiny": manifest.root}, tmp_path / "history")
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         manager = cast("Coordinator", client.app_state["coordinator"])
         with manager._condition:
             accepted = manager.submit(RunRequest.model_validate(BODY))
@@ -326,7 +325,7 @@ def test_recovery_rejects_unrelated_evidence_even_inside_an_owned_namespace(
         raise OSError("controlled failure with unrelated evidence")
 
     monkeypatch.setattr(coordinator, "run_experiment", fail_with_foreign_evidence)
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         failed = terminal(client, client.post("/api/jobs", json=BODY).json()["id"])
         assert failed.state == "FAILED"
         assert (
@@ -359,7 +358,7 @@ def test_discovery_reports_unavailable_and_enforces_existing_limits(
         {"tiny": manifest.root, "missing": tmp_path / "private-missing"},
         tmp_path / "history",
     )
-    with TestClient(create_app(settings)) as client:
+    with local_client(create_app(settings)) as client:
         info = client.get("/api/datasets")
         assert "private-missing" not in info.text
         assert info.json()[0]["error_code"] == "dataset_unavailable"
@@ -414,7 +413,7 @@ sys.exit(2)
         check=False,
     )
     assert result.returncode == 23, result.stderr
-    with TestClient(
+    with local_client(
         create_app(Settings({"tiny": manifest.root}, tmp_path / "history"))
     ) as client:
         recovered = client.get("/api/benchmarks").json()[0]["job"]

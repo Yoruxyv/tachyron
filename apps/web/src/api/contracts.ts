@@ -13,6 +13,10 @@ export interface RunRequest {
   tiny: boolean;
 }
 export interface Dataset {
+  display_name?: string | null;
+  source?: string;
+  selection_mode?: string | null;
+  excluded_count?: number;
   dataset_id: string;
   input_count: number | null;
   total_bytes: number | null;

@@ -37,7 +37,7 @@ values. Example submission, explicitly labeled as a tiny functional test:
 
 ```powershell
 $body = '{"dataset_id":"example","width":4,"height":3,"tiny":true,"repetitions":1}'
-$job = Invoke-RestMethod http://127.0.0.1:8000/api/jobs -Method Post -ContentType 'application/json' -Headers @{'Idempotency-Key'='example-1'} -Body $body
+$job = Invoke-RestMethod http://127.0.0.1:8000/api/jobs -Method Post -ContentType 'application/json' -Headers @{'Idempotency-Key'='example-1';'X-Tachyron-Request'='1'} -Body $body
 Invoke-RestMethod "http://127.0.0.1:8000/api/jobs/$($job.id)"
 Invoke-RestMethod "http://127.0.0.1:8000/api/jobs/$($job.id)/metrics"
 ```
@@ -46,7 +46,38 @@ The last request returns `409` until the job completes successfully. A tiny test
 is not representative performance evidence. Omit `tiny` and `repetitions` for
 the normal one warm-up plus five measured repetitions per configuration.
 
+## Local request boundary
+
+This release intentionally changes compatibility for **all state-changing API
+routes**, including existing job submission and cancellation. Send
+`X-Tachyron-Request: 1`. Native local scripts may omit Origin and Fetch Metadata;
+they still need that header and a permitted loopback Host. Existing GET contracts
+are unchanged. The PowerShell example above includes the required header.
+
+Requests accept Host names `127.0.0.1`, `localhost`, and `[::1]`, with valid optional
+ports. A browser mutation also needs an exact allowed Origin if Origin is present
+and must not declare `Sec-Fetch-Site: cross-site`. Defaults are
+`http://127.0.0.1:5173`, `http://localhost:5173`,
+`http://127.0.0.1:8000`, `http://127.0.0.1:4173`, and
+`http://127.0.0.1:4174`. Programmatic Settings can explicitly configure allowed
+hosts/origins for a trusted local deployment. Unlisted origins, malformed hosts,
+missing mutation headers and cross-site requests return sanitized `403` responses
+before consuming a body. No permissive CORS response is enabled. Interactive
+OpenAPI mutations also require the header, for example through its documented
+request contract or a native client.
+
+These checks mitigate browser-driven local writes and DNS rebinding. The custom
+header is not a secret or authentication. Loopback access by native programs and
+the local OS account remains trusted. Do not bind to a public network or treat
+this boundary as authorization for remote clients.
+
 ## HTTP contract
+
+Browser folder imports are described in [dataset imports](dataset-imports.md),
+including their exact multipart contract, durable catalog and recovery rules.
+`GET /api/datasets` combines environment snapshots with committed managed
+registrations. Imported datasets extend entries with optional display/source and
+explicit-selection provenance; existing job requests still use `dataset_id`.
 
 | Endpoint                     | Behavior                                                  |
 | ---------------------------- | --------------------------------------------------------- |
