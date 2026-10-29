@@ -43,7 +43,15 @@ class Session:
         self.mutex = Lock()
         self.connection: Channel | None = None
         self.process: SpawnProcess | None = None
+        self._digest = digest
+        self._boundary = boundary
+        self._validated = False
         self.nonce = catalog.create(identifier, digest)
+
+    def start(self) -> None:
+        """Start only after the coordinator has exposed this cancellable owner."""
+        if self.cancelled.is_set():
+            raise DatasetImportError("import_cancelled", 409)
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()
         self.connection = parent
@@ -51,11 +59,11 @@ class Session:
             target=run,
             args=(
                 child,
-                catalog.objects / identifier,
+                self.catalog.objects / self.identifier,
                 self.nonce,
-                digest,
-                boundary,
-                catalog.limits,
+                self._digest,
+                self._boundary,
+                self.catalog.limits,
             ),
             name="tachyron-import",
         )
@@ -65,15 +73,17 @@ class Session:
             child.close()
             if process.pid is None:
                 raise DatasetImportError("worker_unavailable", 503)
-            catalog.helper(
-                identifier, process.pid, psutil.Process(process.pid).create_time()
+            self.catalog.helper(
+                self.identifier, process.pid, psutil.Process(process.pid).create_time()
             )
+            if self.cancelled.is_set():
+                raise DatasetImportError("import_cancelled", 409)
             self.exchange(b"go", "locked")
+        except (OSError, RuntimeError, psutil.Error) as error:
+            child.close()
+            raise DatasetImportError("worker_unavailable", 503) from error
         except BaseException:
             child.close()
-            self.stop()
-            catalog.finish(identifier, "worker_unavailable")
-            self.done.set()
             raise
 
     def exchange(self, command: bytes, expected: str) -> dict[str, object]:
@@ -81,6 +91,8 @@ class Session:
         connection = self.connection
         if connection is None:
             raise DatasetImportError("worker_unavailable", 503)
+        if self.cancelled.is_set():
+            raise DatasetImportError("import_cancelled", 409)
         connection.send_bytes(command)
         deadline = monotonic() + self.catalog.limits.image_seconds
         while True:
@@ -126,6 +138,8 @@ class Session:
                 )
                 deadline = monotonic() + self.catalog.limits.image_seconds
             elif kind == expected:
+                if kind == "complete":
+                    self._validated = True
                 if kind == "received":
                     self.progress = self.progress.model_copy(
                         update={"received_files": int(cast("int", raw["count"]))}
@@ -167,21 +181,28 @@ class Session:
     def cancel(self) -> Operation:
         """Persist intent; terminal receipts are always returned unchanged."""
         with self.mutex:
-            operation = self.catalog.get(self.identifier)
+            try:
+                operation = self.catalog.get(self.identifier)
+            except DatasetImportError:
+                self.cancelled.set()
+                raise
             if operation.state in TERMINAL:
                 return operation
-            operation = self.catalog.update(
-                operation.model_copy(update={"cancel_requested": True})
-            )
-            self.cancelled.set()
+            try:
+                operation = self.catalog.update(
+                    operation.model_copy(update={"cancel_requested": True})
+                )
+            finally:
+                self.cancelled.set()
             return operation
 
     def stop(self) -> None:
         """Join only the process object this session created; never target a raw PID."""
         process = self.process
         if self.connection is not None:
-            with suppress(OSError):
-                self.connection.send_bytes(b"release")
+            if self._validated:
+                with suppress(OSError):
+                    self.connection.send_bytes(b"release")
             self.connection.close()
             self.connection = None
         if process is not None and process.pid is not None:
@@ -194,6 +215,9 @@ class Session:
                 process.join(timeout=5)
             if process.is_alive():
                 raise DatasetImportError("worker_unavailable", 503)
+            process.close()
+            self.process = None
+        elif process is not None:
             process.close()
             self.process = None
 

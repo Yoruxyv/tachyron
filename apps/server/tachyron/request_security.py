@@ -24,7 +24,21 @@ class LocalRequests:
             await self.app(scope, receive, send)
             return
         settings = coordinator.settings
-        host = urlsplit("//" + request.headers.get("host", "")).hostname
+        try:
+            authority = urlsplit("//" + request.headers.get("host", ""))
+            host = authority.hostname
+            if (
+                len(request.headers.getlist("host")) != 1
+                or authority.username is not None
+                or authority.password is not None
+                or authority.path
+                or authority.query
+                or authority.fragment
+                or authority.port == 0
+            ):
+                host = None
+        except ValueError:
+            host = None
         code = ""
         if host not in settings.allowed_hosts:
             code = "invalid_host"
@@ -33,10 +47,12 @@ class LocalRequests:
             "PUT",
             "PATCH",
             "DELETE",
-        } and request.url.path.startswith("/api/"):
+        } and scope["path"].startswith("/api/"):
             origin = request.headers.get("origin")
             if (
                 request.headers.get("x-tachyron-request") != "1"
+                or len(request.headers.getlist("x-tachyron-request")) != 1
+                or len(request.headers.getlist("origin")) > 1
                 or (origin is not None and origin not in settings.allowed_origins)
                 or request.headers.get("sec-fetch-site") == "cross-site"
             ):

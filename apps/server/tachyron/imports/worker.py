@@ -4,9 +4,11 @@
 import hashlib
 import json
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
+import psutil
 from pydantic import ValidationError
 from python_multipart import MultipartParser
 from python_multipart.exceptions import MultipartParseError
@@ -45,7 +47,7 @@ class Channel(Protocol):
 
 def send(connection: Channel, value: dict[str, object]) -> None:
     """Use bounded JSON rather than unpickling data from an image-handling child."""
-    data = json.dumps(value, separators=(",", ":")).encode()
+    data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
     if len(data) > FRAME_BYTES:
         raise DatasetImportError("worker_protocol", 503)
     connection.send_bytes(data)
@@ -246,64 +248,84 @@ def run(
     helper has no database connection and receives no Python pickled payloads.
     """
     upload: Upload | None = None
-    try:
-        if connection.recv_bytes(FRAME_BYTES) != b"go":
-            return
-        with experiment_lock():
-            managed_root(directory.parent)
-            directory.mkdir(mode=0o700)
-            with (directory / ".owner").open("x", encoding="ascii") as stream:
-                stream.write(nonce)
-                stream.flush()
-                os.fsync(stream.fileno())
-            root = directory / "files"
-            root.mkdir(mode=0o700)
-            upload = Upload(connection, root, digest, boundary, limits)
-            send(connection, {"kind": "locked"})
-            while True:
-                command = connection.recv_bytes(FRAME_BYTES)
-                if command.startswith(b"data:"):
-                    upload.parser.write(command[5:])
-                    send(connection, {"kind": "received", "count": len(upload.entries)})
-                elif command == b"finish":
-                    manifest = upload.finish()
-                    send(
-                        connection,
-                        {"kind": "complete", "manifest": manifest_document(manifest)},
+    with suppress(BrokenPipeError, EOFError):
+        try:
+            if connection.recv_bytes(FRAME_BYTES) != b"go":
+                return
+            with experiment_lock():
+                managed_root(directory.parent)
+                directory.mkdir(mode=0o700)
+                with (directory / ".owner").open("x", encoding="ascii") as stream:
+                    stream.write(
+                        json.dumps(
+                            {
+                                "nonce": nonce,
+                                "operation_id": directory.name,
+                                "pid": os.getpid(),
+                                "born": psutil.Process().create_time(),
+                            }
+                        )
                     )
-                    # From this boundary onward, the helper performs no file mutations.
-                    connection.recv_bytes(FRAME_BYTES)
-                    return
-                else:
-                    raise DatasetImportError("worker_protocol", 503)
-    except DatasetImportError as error:
-        send(
-            connection,
-            {
-                "kind": "failure",
-                "code": error.code,
-                "status": error.status,
-                "index": error.index,
-            },
-        )
-    except BenchmarkError:
-        send(connection, {"kind": "failure", "code": "workload_busy", "status": 409})
-    except (
-        MultipartParseError,
-        ValidationError,
-        UnicodeError,
-        json.JSONDecodeError,
-        KeyError,
-        ValueError,
-    ):
-        send(
-            connection, {"kind": "failure", "code": "invalid_multipart", "status": 400}
-        )
-    except (OSError, ProcessingError):
-        send(connection, {"kind": "failure", "code": "import_io_error", "status": 503})
-    except EOFError:
-        return
-    finally:
-        if upload is not None:
-            upload.close()
-        connection.close()
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                root = directory / "files"
+                root.mkdir(mode=0o700)
+                upload = Upload(connection, root, digest, boundary, limits)
+                send(connection, {"kind": "locked"})
+                while True:
+                    command = connection.recv_bytes(FRAME_BYTES)
+                    if command.startswith(b"data:"):
+                        upload.parser.write(command[5:])
+                        send(
+                            connection,
+                            {"kind": "received", "count": len(upload.entries)},
+                        )
+                    elif command == b"finish":
+                        manifest = upload.finish()
+                        send(
+                            connection,
+                            {
+                                "kind": "complete",
+                                "manifest": manifest_document(manifest),
+                            },
+                        )
+                        # From this boundary onward, the helper performs no file mutations.
+                        connection.recv_bytes(FRAME_BYTES)
+                        return
+                    else:
+                        raise DatasetImportError("worker_protocol", 503)
+        except DatasetImportError as error:
+            send(
+                connection,
+                {
+                    "kind": "failure",
+                    "code": error.code,
+                    "status": error.status,
+                    "index": error.index,
+                },
+            )
+        except BenchmarkError:
+            send(
+                connection, {"kind": "failure", "code": "workload_busy", "status": 409}
+            )
+        except (
+            MultipartParseError,
+            ValidationError,
+            UnicodeError,
+            json.JSONDecodeError,
+            KeyError,
+            ValueError,
+        ):
+            send(
+                connection,
+                {"kind": "failure", "code": "invalid_multipart", "status": 400},
+            )
+        except (OSError, ProcessingError):
+            send(
+                connection,
+                {"kind": "failure", "code": "import_io_error", "status": 503},
+            )
+        finally:
+            if upload is not None:
+                upload.close()
+            connection.close()

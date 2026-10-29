@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -14,6 +15,7 @@ from typing import cast
 from uuid import uuid4
 
 import psutil
+from pydantic import TypeAdapter
 
 from tachyron.benchmarking.ownership import experiment_lock
 from tachyron.imports.models import (
@@ -27,7 +29,7 @@ from tachyron.imports.models import (
 )
 from tachyron.jobs.models import DatasetInfo
 from tachyron.processing.dataset import dataset_root, reject_link, validate_manifest
-from tachyron.processing.models import DatasetManifest, ManifestEntry, ResourceLimits
+from tachyron.processing.models import DatasetManifest
 
 RECEIPT_BYTES = 8192
 RESERVE_BYTES = 2 * 1024 * 1024
@@ -57,19 +59,34 @@ def manifest_document(manifest: DatasetManifest) -> str:
 
 def load_manifest(document: str, root: Path) -> DatasetManifest:
     """Validate stored evidence without rediscovering or refreshing its identity."""
-    raw = cast("dict[str, object]", json.loads(document))
-    entries = tuple(
-        ManifestEntry(
-            str(item["relative_path"]),
-            int(cast("int", item["size_bytes"])),
-            str(item["sha256"]),
+    try:
+        raw = cast("dict[str, object]", json.loads(document))
+        manifest = TypeAdapter(DatasetManifest).validate_json(
+            json.dumps({**raw, "root": str(root)}), strict=True
         )
-        for item in cast("list[dict[str, object]]", raw["entries"])
-    )
-    limits = ResourceLimits(**cast("dict[str, int]", raw["limits"]))
-    manifest = DatasetManifest(root, entries, str(raw["sha256"]), limits)
-    validate_manifest(manifest)
-    return manifest
+        validate_manifest(manifest)
+        return manifest
+    except (ValueError, TypeError) as error:
+        raise DatasetImportError("catalog_unavailable", 503) from error
+
+
+def owner_document(directory: Path, nonce: str) -> dict[str, object]:
+    """Read only a bounded regular ownership marker; old nonce markers allow cleanup."""
+    marker = directory / ".owner"
+    info = marker.lstat()
+    reject_link(info)
+    if not stat.S_ISREG(info.st_mode) or info.st_size > 1024:
+        raise DatasetImportError("ownership_unconfirmed", 503)
+    raw = marker.read_text(encoding="ascii")
+    if raw == nonce:
+        return {"nonce": nonce}
+    try:
+        result = cast("dict[str, object]", json.loads(raw))
+        if not isinstance(result, dict) or result.get("nonce") != nonce:
+            raise DatasetImportError("ownership_unconfirmed", 503)
+        return result
+    except (ValueError, TypeError) as error:
+        raise DatasetImportError("ownership_unconfirmed", 503) from error
 
 
 class Catalog:
@@ -368,14 +385,15 @@ class Catalog:
                     "DELETE FROM work WHERE operation=?", (identifier,)
                 )
             return
+        if operation.state not in TERMINAL:
+            raise DatasetImportError("ownership_unconfirmed", 503)
         with experiment_lock():
+            dataset_root(self.root)
+            dataset_root(self.objects)
             directory = self.objects / identifier
             if directory.exists() or directory.is_symlink():
                 dataset_root(directory)
-                marker = directory / ".owner"
-                reject_link(marker.lstat())
-                if marker.read_text(encoding="ascii") != nonce:
-                    raise DatasetImportError("ownership_unconfirmed", 503)
+                owner_document(directory, nonce)
                 # Validate every descendant before recursive deletion, including junctions.
                 for parent, directories, files in os.walk(directory, followlinks=False):
                     for name in (*directories, *files):
@@ -388,21 +406,41 @@ class Catalog:
         """Reap verified helpers before failing unfinished operations and cleaning."""
         with self.transaction():
             rows = self.connection.execute(
-                "SELECT operation,pid,born FROM work"
+                "SELECT operation,pid,born,nonce FROM work JOIN operations ON operations.id=work.operation"
             ).fetchall()
-        for identifier, pid, born in rows:
+        for identifier, pid, born, nonce in rows:
             if pid is not None:
                 try:
                     process = psutil.Process(pid)
                     if process.create_time() == born:
-                        if "--multiprocessing-fork" not in process.cmdline():
-                            raise DatasetImportError("ownership_unconfirmed", 503)
-                        process.kill()
-                        process.wait(timeout=5)
+                        self._reap(process, identifier, nonce, born)
                 except psutil.NoSuchProcess:
                     pass
             self.finish(identifier, "server_interrupted")
             self.cleanup(identifier)
+
+    def _reap(
+        self, process: psutil.Process, identifier: str, nonce: str, born: float
+    ) -> None:
+        """Kill only a helper corroborated by its private marker and durable identity."""
+        directory = self.objects / identifier
+        try:
+            dataset_root(directory)
+            owner = owner_document(directory, nonce)
+        except FileNotFoundError:
+            # Before `go` the child has no marker and exits on the dead parent's pipe.
+            owner = {}
+        try:
+            if (
+                owner.get("operation_id") == identifier
+                and owner.get("pid") == process.pid
+                and owner.get("born") == born
+                and "--multiprocessing-fork" in process.cmdline()
+            ):
+                process.kill()
+            process.wait(timeout=5)
+        except (psutil.TimeoutExpired, psutil.AccessDenied) as error:
+            raise DatasetImportError("ownership_unconfirmed", 503) from error
 
     def close(self) -> None:
         """Release catalog ownership after every helper has stopped."""

@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tachyron.jobs.models import DatasetInfo
 from tachyron.processing.dataset import validate_relative
-from tachyron.processing.models import DEFAULT_LIMITS
+from tachyron.processing.models import DEFAULT_LIMITS, ProcessingError
 
 CHUNK = 64 * 1024
 METADATA_BYTES = 512 * 1024
@@ -120,9 +120,12 @@ class Metadata(Document):
 
 def portable_parts(name: str) -> tuple[str, ...]:
     """Preserve accepted names while rejecting Windows/Unicode ambiguities."""
-    parts = validate_relative(name)
+    try:
+        parts = validate_relative(name)
+    except ProcessingError as error:
+        raise DatasetImportError("invalid_path") from error
     for part in parts:
-        device = part.split(".")[0].upper()
+        device = part.split(".")[0].rstrip(" ").upper()
         if (
             len(part.encode("utf-8")) > 240
             or part.endswith((".", " "))

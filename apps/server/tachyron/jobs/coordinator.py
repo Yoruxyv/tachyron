@@ -20,7 +20,8 @@ import psutil
 from tachyron.benchmarking.exports import read_experiment
 from tachyron.benchmarking.models import BenchmarkError, RunRecord
 from tachyron.benchmarking.runner import run_experiment
-from tachyron.imports.models import DatasetImportError, ImportLimits
+from tachyron.imports.models import TERMINAL as IMPORT_TERMINAL
+from tachyron.imports.models import DatasetImportError, ImportLimits, Operation
 from tachyron.imports.service import Session
 from tachyron.imports.storage import Catalog
 from tachyron.jobs.models import (
@@ -130,12 +131,10 @@ class Coordinator:
         if self._thread is not None:
             raise RuntimeError("Coordinator already started")
         candidate = self.settings.data_dir.resolve()
-        managed = (
-            self.settings.dataset_dir
-            or self.settings.data_dir.with_name(
-                self.settings.data_dir.name + "-datasets"
-            )
-        ).resolve()
+        managed_path = self.settings.dataset_dir or self.settings.data_dir.with_name(
+            self.settings.data_dir.name + "-datasets"
+        )
+        managed = managed_path.resolve()
         for other in (
             candidate,
             *(root.resolve() for root in self.settings.datasets.values()),
@@ -154,7 +153,7 @@ class Coordinator:
         self.directory = dataset_root(self.settings.data_dir)
         self.store = HistoryStore(self.directory / "history.sqlite3")
         try:
-            self.catalog = Catalog(managed, self.settings.import_limits)
+            self.catalog = Catalog(managed_path, self.settings.import_limits)
             self.catalog.recover()
             self._discover()
             if set(self.settings.datasets) & {
@@ -263,20 +262,30 @@ class Coordinator:
 
     def close(self) -> None:
         """Stop admission, cancel waiting jobs, then drain the active child pool."""
+        with self._condition:
+            self._closing = True
+            for signal in self._signals.values():
+                signal.set()
+            self._condition.notify_all()
+            session = self.import_session
+        if session is not None:
+            try:
+                session.cancel()
+            except DatasetImportError:
+                logger.warning("Import cancellation persistence failed during shutdown")
+            if not session.done.wait(
+                timeout=self.settings.import_limits.image_seconds + 15
+            ):
+                raise DatasetImportError("worker_unavailable", 503)
+            # The request owner has finished. Retry a previously failed reap
+            # before releasing storage ownership or admitting another owner.
+            if session.process is not None:
+                session.close()
+                self.release_import(session)
         try:
             with self._condition:
-                self._closing = True
-                for signal in self._signals.values():
-                    signal.set()
-                self._condition.notify_all()
                 for identifier in tuple(self._signals):
                     self.cancel(identifier)
-                session = self.import_session
-            if session is not None:
-                session.cancel()
-                session.done.wait()
-            with self._condition:
-                self._condition.wait_for(lambda: not self._import_reserved)
         finally:
             # Joining before closing storage also covers partial shutdown failures.
             if self._thread is not None and self._thread.ident is not None:
@@ -285,31 +294,52 @@ class Coordinator:
             if hasattr(self, "catalog"):
                 self.catalog.close()
 
-    def reserve_import(self) -> None:
-        """Serialize import admission against queued and executing job ownership."""
+    def begin_import(
+        self, identifier: str, digest: str, boundary: str
+    ) -> Session | Operation:
+        """Persist and attach the owner before helper startup can block or fail."""
         with self._condition:
+            previous = self.catalog.replay(identifier, digest)
+            if previous is not None:
+                return previous
             if self._closing or not self._healthy:
                 raise DatasetImportError("coordinator_unavailable", 503)
             if self._signals or self._queue:
                 raise DatasetImportError("workload_busy", 409)
             if self._import_reserved:
                 raise DatasetImportError("import_busy", 429)
-            self._import_reserved = True
-
-    def attach_import(self, session: Session) -> None:
-        """Expose the sole session and honor shutdown during helper startup."""
-        with self._condition:
+            if "import-" + identifier.replace("-", "") in self.settings.datasets:
+                raise DatasetImportError("dataset_id_conflict", 409)
+            session = Session(self.catalog, identifier, digest, boundary)
             self.import_session = session
-            closing = self._closing
-        if closing:
-            session.cancel()
+            self._import_reserved = True
+            return session
 
-    def release_import(self) -> None:
-        """Release admission only after helper ownership has drained."""
+    def release_import(self, session: Session) -> None:
+        """Fail closed when the request finishes without confirming helper exit."""
         with self._condition:
+            if self.import_session is not session:
+                raise RuntimeError("Import owner does not match")
+            if session.process is not None:
+                self._healthy = False
+                self._condition.notify_all()
+                return
             self.import_session = None
             self._import_reserved = False
             self._condition.notify_all()
+
+    def cancel_import(self, identifier: str) -> Operation:
+        """Serialize cancellation with durable admission and session attachment."""
+        with self._condition:
+            session = self.import_session
+            if session is not None and session.identifier == identifier:
+                return session.cancel()
+            operation = self.catalog.get(identifier)
+            if operation.state in IMPORT_TERMINAL:
+                return operation
+            return self.catalog.update(
+                operation.model_copy(update={"cancel_requested": True})
+            )
 
     def resolve_manifest(
         self, identifier: str, expected: str | None = None

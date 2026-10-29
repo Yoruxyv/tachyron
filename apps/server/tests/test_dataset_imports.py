@@ -178,7 +178,7 @@ def test_unsafe_names_fail_before_file_writes(tmp_path: Path, name: str) -> None
         create_app(settings(tmp_path)), base_url="http://127.0.0.1"
     ) as client:
         response = client.post("/api/dataset-imports", content=body, headers=headers)
-        assert response.status_code >= 400
+        assert response.status_code == 422
         assert (
             client.get(f"/api/dataset-imports/{identifier}").json()["state"] == "FAILED"
         )

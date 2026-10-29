@@ -29,6 +29,7 @@ if sys.argv[1:] == ["--api"]:
 
     assert asyncio.run(health()) == {"status": "ok"}
     assert "/api/jobs" in create_app().openapi()["paths"]
+    assert "/api/dataset-imports" in create_app().openapi()["paths"]
     raise SystemExit(0)
 
 
@@ -50,7 +51,7 @@ def command(name: str, *arguments: str, cwd: Path) -> dict[str, object]:
 
 def check_base(root: Path) -> None:
     """Verify optional isolation, real spawn, and deterministic installed exports."""
-    for name in ("fastapi", "pydantic", "uvicorn"):
+    for name in ("fastapi", "pydantic", "uvicorn", "python_multipart"):
         assert importlib.util.find_spec(name) is None, name
     dataset = root / "input"
     dataset.mkdir()

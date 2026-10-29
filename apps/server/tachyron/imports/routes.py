@@ -3,7 +3,7 @@
 
 import asyncio
 import re
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import asdict
 from time import monotonic
 from typing import Annotated, ParamSpec, TypeVar
@@ -15,7 +15,6 @@ from starlette.requests import ClientDisconnect
 
 from tachyron.imports.models import DatasetImportError, Operation
 from tachyron.imports.service import Session
-from tachyron.jobs.coordinator import Coordinator
 from tachyron.jobs.routes import Manager
 
 router = APIRouter(prefix="/api/dataset-imports")
@@ -39,11 +38,16 @@ async def owned_thread(
 ) -> T:
     """Do not abandon a mutating thread when its ASGI owner is cancelled."""
     task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
+    interrupted = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            interrupted = True
+    result = task.result()
+    if interrupted:
+        raise asyncio.CancelledError
+    return result
 
 
 @router.post("")
@@ -55,14 +59,23 @@ async def upload(
     metadata_digest: Annotated[str, Header(alias="X-Tachyron-Metadata-SHA256")],
 ) -> Operation:
     """Receive one exact workload; disconnect before EOF fails, after EOF continues."""
+    identifier, boundary = upload_identity(request, idempotency_key, metadata_digest)
+    response.headers["Location"] = f"/api/dataset-imports/{identifier}"
+    previous = manager.catalog.replay(identifier, metadata_digest)
+    if previous is not None:
+        return previous
+    return await receive_import(
+        request, response, manager, identifier, metadata_digest, boundary
+    )
+
+
+def upload_identity(request: Request, key: str, digest: str) -> tuple[str, str]:
+    """Validate framing and identity before creating a durable operation."""
     try:
-        identifier = str(UUID(idempotency_key))
+        identifier = str(UUID(key))
     except ValueError as error:
         raise DatasetImportError("invalid_request") from error
-    if (
-        identifier != idempotency_key
-        or re.fullmatch(r"[a-f0-9]{64}", metadata_digest) is None
-    ):
+    if identifier != key or re.fullmatch(r"[a-f0-9]{64}", digest) is None:
         raise DatasetImportError("invalid_request")
     content_type, parameters = parse_options_header(
         request.headers.get("content-type", "")
@@ -76,20 +89,33 @@ async def upload(
         raise DatasetImportError("invalid_multipart", 400)
     if request.headers.get("content-encoding", "identity") != "identity":
         raise DatasetImportError("invalid_multipart", 400)
-    response.headers["Location"] = f"/api/dataset-imports/{identifier}"
-    previous = manager.catalog.replay(identifier, metadata_digest)
-    if previous is not None:
-        return previous
+    return identifier, boundary.decode("ascii")
+
+
+async def receive_import(
+    request: Request,
+    response: Response,
+    manager: Manager,
+    identifier: str,
+    metadata_digest: str,
+    boundary: str,
+) -> Operation:
+    """Keep one request's owner through allocation, terminal transition and cleanup."""
     session: Session | None = None
-    manager.reserve_import()
+
+    def allocate() -> Session | Operation:
+        nonlocal session
+        owner = manager.begin_import(identifier, metadata_digest, boundary)
+        if isinstance(owner, Session):
+            session = owner
+        return owner
+
     try:
-        session = await owned_thread(
-            open_session,
-            manager,
-            identifier,
-            metadata_digest,
-            boundary.decode("ascii"),
-        )
+        owner = await owned_thread(allocate)
+        if isinstance(owner, Operation):
+            return owner
+        session = owner
+        await owned_thread(session.start)
         await receive_body(request, session)
         # No disconnect listener after EOF: lost response must not roll back a commit.
         document = await owned_thread(session.validate)
@@ -103,24 +129,27 @@ async def upload(
             else "upload_timeout",
             408,
         )
-        manager.catalog.finish(identifier, failure.code)
+        if session is not None:
+            manager.catalog.finish(identifier, failure.code)
         raise failure from error
     except DatasetImportError as error:
-        manager.catalog.finish(identifier, error.code, error.index)
+        if session is not None:
+            manager.catalog.finish(identifier, error.code, error.index)
         raise
     except (EOFError, OSError, ValueError) as error:
-        manager.catalog.finish(identifier, "worker_unavailable")
+        if session is not None:
+            manager.catalog.finish(identifier, "worker_unavailable")
         raise DatasetImportError("worker_unavailable", 503) from error
     except asyncio.CancelledError:
-        manager.catalog.finish(identifier, "server_interrupted")
+        if session is not None:
+            manager.catalog.finish(identifier, "server_interrupted")
         raise
     finally:
-        session = session or manager.import_session
-        try:
-            if session is not None:
+        if session is not None:
+            try:
                 await owned_thread(session.close)
-        finally:
-            manager.release_import()
+            finally:
+                manager.release_import(session)
 
 
 @router.get("/{operation_id}")
@@ -140,22 +169,31 @@ def status(operation_id: UUID, manager: Manager) -> Operation:
 @router.post("/{operation_id}/cancel", status_code=202)
 def cancel(operation_id: UUID, manager: Manager, response: Response) -> Operation:
     """Cancellation intent is distinct from resource cleanup and terminal state."""
-    operation = manager.catalog.get(str(operation_id))
-    session = manager.import_session
-    if session is not None and session.identifier == str(operation_id):
-        operation = session.cancel()
+    operation = manager.cancel_import(str(operation_id))
     if operation.state in ("READY", "FAILED", "CANCELLED"):
         response.status_code = 200
     return operation
 
 
-def open_session(
-    manager: Coordinator, identifier: str, digest: str, boundary: str
-) -> Session:
-    """Attach before returning, including cancellation of the awaiting ASGI task."""
-    session = Session(manager.catalog, identifier, digest, boundary)
-    manager.attach_import(session)
-    return session
+async def next_data(
+    stream: AsyncIterator[bytes], session: Session, budget: float
+) -> bytes:
+    """Observe cancellation while an otherwise idle client still owns its socket."""
+    task = asyncio.ensure_future(anext(stream))
+    deadline = monotonic() + budget
+    try:
+        while True:
+            if session.cancelled.is_set():
+                raise DatasetImportError("import_cancelled", 409)
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            finished, _ = await asyncio.wait((task,), timeout=min(0.05, remaining))
+            if finished:
+                return task.result()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def receive_body(request: Request, session: Session) -> None:
@@ -174,8 +212,8 @@ async def receive_body(request: Request, session: Session) -> None:
         if remaining <= 0:
             raise DatasetImportError("upload_timeout", 408)
         try:
-            data = await asyncio.wait_for(
-                stream.__anext__(), min(limit.inactivity_seconds, remaining)
+            data = await next_data(
+                stream, session, min(limit.inactivity_seconds, remaining)
             )
         except StopAsyncIteration:
             return
