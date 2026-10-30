@@ -88,6 +88,11 @@ explicit experimental inputs; selecting more than reported logical CPUs warns.
 See [sequential processing](docs/processing.md) for a generated tiny dataset,
 the exact image contract, safety limits, and Python usage.
 
+For an explicitly selected local workload of up to 10,000 files, use the separate
+fixed-worker [local execution workflow](docs/local-execution.md). Its operational
+receipts account for failed, cancelled and unknown work. Automatic calibration
+and live worker monitoring remain deferred; browser upload limits are unchanged.
+
 ## Reproducible benchmarks
 
 Use the generated dataset and existing `results/` parent from the processing
@@ -163,6 +168,7 @@ the backend on the same origin; Vite's development proxy is not a production ser
 - `apps/server/tachyron/processing/`: manifest, image semantics, and sequential execution.
 - `apps/server/tachyron/cli.py`: processing arguments, JSON reporting, and exit codes.
 - `apps/server/tachyron/workers/`: bounded process-pool ownership and ordered aggregation.
+- `apps/server/tachyron/execution/`: local operational admission, receipts and inspection.
 - `apps/server/tachyron/benchmarking/`: schedule, observation, evidence and pure statistics.
 - `apps/server/tachyron/benchmark_cli.py`: independent benchmark run/compare commands.
 - `apps/web/src/api/`: browser HTTP contract validation and cancellation.
