@@ -33,6 +33,35 @@ def _text(path: Path, maximum: int = 256) -> str:
     return value.strip()
 
 
+def _cpu_quota(directory: Path) -> float | None:
+    """Read one visible CPU limit, validating its period even when unlimited."""
+    path = directory / "cpu.max"
+    if not path.exists():
+        return None
+    quota, period = _text(path).split()
+    if int(period) <= 0:
+        raise ValueError("Invalid CPU period")
+    if quota == "max":
+        return None
+    if int(quota) <= 0:
+        raise ValueError("Invalid CPU quota")
+    return int(quota) / int(period)
+
+
+def _memory_headroom(directory: Path) -> float | None:
+    """Read finite memory headroom without treating missing usage as capacity."""
+    path = directory / "memory.max"
+    if not path.exists():
+        return None
+    maximum = _text(path)
+    if maximum == "max":
+        return None
+    current = int(_text(directory / "memory.current"))
+    if current < 0 or int(maximum) < 0:
+        raise ValueError("Invalid memory observation")
+    return max(0, int(maximum) - current) / 1024**2
+
+
 def _cgroup_limits(proc: Path, mount: Path) -> tuple[float | None, float | None]:
     """Read visible v2 ancestors only on the recognized unified root mount."""
     mounts = _text(proc / "self/mountinfo", 1024**2).splitlines()
@@ -50,21 +79,12 @@ def _cgroup_limits(proc: Path, mount: Path) -> tuple[float | None, float | None]
     quotas: list[float] = []
     memory: list[float] = []
     for parent in (directory, *directory.parents):
-        if (parent / "cpu.max").exists():
-            quota, period = _text(parent / "cpu.max").split()
-            if int(period) <= 0:
-                raise ValueError("Invalid CPU period")
-            if quota != "max":
-                if int(quota) <= 0:
-                    raise ValueError("Invalid CPU quota")
-                quotas.append(int(quota) / int(period))
-        if (parent / "memory.max").exists():
-            maximum = _text(parent / "memory.max")
-            if maximum != "max":
-                current = int(_text(parent / "memory.current"))
-                if current < 0 or int(maximum) < 0:
-                    raise ValueError("Invalid memory observation")
-                memory.append(max(0, int(maximum) - current) / 1024**2)
+        quota = _cpu_quota(parent)
+        if quota is not None:
+            quotas.append(quota)
+        headroom = _memory_headroom(parent)
+        if headroom is not None:
+            memory.append(headroom)
         if parent == mount:
             break
     return min(quotas) if quotas else None, min(memory) if memory else None

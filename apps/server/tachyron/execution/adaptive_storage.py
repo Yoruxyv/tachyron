@@ -254,8 +254,8 @@ def _trials(
     return tuple(results)
 
 
-def _profiles(calibration: dict[str, object], manifest: DatasetManifest) -> None:
-    """Validate observed variability and coverage separately from execution state."""
+def _profile_categories(calibration: dict[str, object]) -> dict[tuple[str, int], int]:
+    """Validate unique profile strata and their total observed input count."""
     categories: dict[tuple[str, int], int] = {}
     for value in _array(calibration["profile_categories"]):
         parts = _array(value)
@@ -272,6 +272,12 @@ def _profiles(calibration: dict[str, object], manifest: DatasetManifest) -> None
         categories[key] = _integer(parts[2])
     if sum(categories.values()) != _integer(calibration["profiled_inputs"]):
         raise ValueError("Invalid profile accounting")
+    return categories
+
+
+def _profiles(calibration: dict[str, object], manifest: DatasetManifest) -> None:
+    """Validate observed variability and coverage separately from execution state."""
+    categories = _profile_categories(calibration)
     sample_profiles = _array(calibration["sample_profiles"])
     names = _array(calibration["sample_paths"])
     if len(sample_profiles) != len(names):
