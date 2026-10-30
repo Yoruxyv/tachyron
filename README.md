@@ -90,8 +90,11 @@ the exact image contract, safety limits, and Python usage.
 
 For an explicitly selected local workload of up to 10,000 files, use the separate
 fixed-worker [local execution workflow](docs/local-execution.md). Its operational
-receipts account for failed, cancelled and unknown work. Automatic calibration
-and live worker monitoring remain deferred; browser upload limits are unchanged.
+receipts account for failed, cancelled and unknown work. The separate
+[experimental, opt-in adaptive local workflow](docs/adaptive-execution.md) measures bounded samples and
+selects workers only with sufficient evidence; otherwise it uses an explicit fixed
+fallback. Calibration can cost more than it saves. Live worker monitoring remains
+deferred; browser upload limits are unchanged.
 
 ## Reproducible benchmarks
 
