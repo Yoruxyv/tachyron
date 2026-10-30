@@ -101,12 +101,43 @@ class _Collection:
                     raise
                 self.error_code = self.error_code or "worker_failure"
                 continue
-            self.outcomes[index] = outcome
-            if self.error_code != "receipt_failure":
-                try:
-                    self.on_outcome(index, outcome)
-                except (OSError, ValueError, RuntimeError):
-                    self.error_code = "receipt_failure"
+            self._acknowledge(index, outcome)
+
+    def _acknowledge(self, index: int, outcome: ImageOutcome) -> None:
+        """Keep received outcomes even after durable acknowledgement fails."""
+        self.outcomes[index] = outcome
+        if self.error_code == "receipt_failure":
+            return
+        try:
+            self.on_outcome(index, outcome)
+        except (OSError, ValueError, RuntimeError):
+            self.error_code = "receipt_failure"
+
+    def execute(
+        self,
+        pool: ProcessPoolExecutor,
+        window: int,
+        cancelled: Callable[[], bool],
+    ) -> None:
+        """Drive the bounded work queue; the caller owns pool startup and shutdown."""
+        while self.cursor < len(self.manifest.entries) or self.pending:
+            try:
+                if cancelled():
+                    self.cancel_requested = True
+                if self.stopping:
+                    self.cancel_pending()
+                else:
+                    self.submit(pool, window)
+                if self.pending:
+                    self.collect()
+                elif self.stopping:
+                    break
+            except KeyboardInterrupt:
+                self.cancel_requested = True
+            except (OSError, RuntimeError, ValueError):
+                self.error_code = self.error_code or "worker_failure"
+                self.cancel_pending()
+                break
 
     def snapshot(self) -> PoolAccounting:
         """Leave all unacknowledged attempted submissions unknown."""
@@ -149,39 +180,21 @@ def run_accounted(
     state = _Collection(manifest, directory, config, on_outcome)
     pool: ProcessPoolExecutor | None = None
     try:
-        try:
-            if cancelled():
-                state.cancel_requested = True
-                return state.snapshot()
-            with defer_startup_interrupt():
-                pool = ProcessPoolExecutor(
-                    max_workers=workers,
-                    mp_context=multiprocessing.get_context("spawn"),
-                    initializer=_initialize_worker,
-                )
-                check_startup_support(pool)
-            while state.cursor < len(manifest.entries) or state.pending:
-                try:
-                    if cancelled():
-                        state.cancel_requested = True
-                    if state.stopping:
-                        state.cancel_pending()
-                    else:
-                        state.submit(pool, 2 * workers)
-                    if state.pending:
-                        state.collect()
-                    elif state.stopping:
-                        break
-                except KeyboardInterrupt:
-                    state.cancel_requested = True
-                except (OSError, RuntimeError, ValueError):
-                    state.error_code = state.error_code or "worker_failure"
-                    state.cancel_pending()
-                    break
-        except KeyboardInterrupt:
+        if cancelled():
             state.cancel_requested = True
-        except (OSError, RuntimeError, ValueError):
-            state.error_code = state.error_code or "worker_failure"
+            return state.snapshot()
+        with defer_startup_interrupt():
+            pool = ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=multiprocessing.get_context("spawn"),
+                initializer=_initialize_worker,
+            )
+            check_startup_support(pool)
+        state.execute(pool, 2 * workers, cancelled)
+    except KeyboardInterrupt:
+        state.cancel_requested = True
+    except (OSError, RuntimeError, ValueError):
+        state.error_code = state.error_code or "worker_failure"
     finally:
         if pool is not None:
             try:

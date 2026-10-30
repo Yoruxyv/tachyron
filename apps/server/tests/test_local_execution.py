@@ -383,3 +383,56 @@ def test_real_pool_cancellation_after_acknowledgement_drains_and_reaps(
     assert sum(result.counts.values()) == 24
     assert inspect_execution(tmp_path / "output") == result
     assert {child.pid for child in multiprocessing.active_children()} <= before
+
+
+@pytest.mark.parametrize(
+    ("first_state", "cancel_requested", "error_code", "state", "error"),
+    [
+        ("SUCCEEDED", False, None, "COMPLETED", None),
+        ("SUCCEEDED", True, None, "COMPLETED", None),
+        ("SUCCEEDED", False, "worker_failure", "FAILED", "worker_failure"),
+        ("SUCCEEDED", True, "receipt_failure", "FAILED", "receipt_failure"),
+        ("FAILED", False, None, "FAILED", "image_failure"),
+        ("FAILED", True, None, "FAILED", "image_failure"),
+        ("FAILED", True, "worker_failure", "FAILED", "worker_failure"),
+        ("FAILED", True, "receipt_failure", "FAILED", "receipt_failure"),
+        ("UNKNOWN", False, None, "FAILED", "worker_failure"),
+        ("UNKNOWN", True, None, "CANCELLED", None),
+        ("NOT_STARTED", False, None, "FAILED", "worker_failure"),
+        ("NOT_STARTED", True, None, "CANCELLED", None),
+        ("UNKNOWN", True, "worker_failure", "FAILED", "worker_failure"),
+        ("NOT_STARTED", True, "receipt_failure", "FAILED", "receipt_failure"),
+    ],
+)
+def test_terminal_classification_preserves_failure_precedence(
+    tmp_path: Path,
+    first_state: str,
+    cancel_requested: bool,
+    error_code: str | None,
+    state: str,
+    error: str | None,
+) -> None:
+    manifest = make_manifest(tmp_path / "inputs")
+    reference = run_sequential(manifest, tmp_path / "reference", TransformConfig(2, 2))
+    outcomes: list[ImageOutcome | None] = list(reference.outcomes)
+    outcomes[0] = {
+        "SUCCEEDED": outcomes[0],
+        "FAILED": ImageOutcome(
+            manifest.entries[0].relative_path, None, "invalid_image"
+        ),
+        "UNKNOWN": None,
+        "NOT_STARTED": None,
+    }[first_state]
+    accounting = operational.PoolAccounting(
+        tuple(outcomes),
+        frozenset({0}) if first_state == "NOT_STARTED" else frozenset(),
+        cancel_requested,
+        error_code,
+    )
+    result = runner._result("execution", manifest, 2, accounting, 0.25)
+    assert (result.state, result.error_code) == (state, error)
+    assert result.cancel_requested is cancel_requested
+    assert result.items[0].state == first_state
+    assert [item.state for item in result.items[1:]] == ["SUCCEEDED", "SUCCEEDED"]
+    assert sum(result.counts.values()) == len(manifest.entries)
+    assert result.processing_seconds == pytest.approx(0.25, rel=0, abs=0)

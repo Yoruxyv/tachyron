@@ -23,6 +23,7 @@ from tachyron.execution.models import (
 from tachyron.execution.storage import encode, publish_outcome
 from tachyron.processing import (
     DatasetManifest,
+    ImageOutcome,
     ProcessingError,
     ResourceLimits,
     TransformConfig,
@@ -45,6 +46,31 @@ def _admit(manifest: DatasetManifest, output: Path, config: TransformConfig) -> 
         )
 
 
+def _item_state(outcome: ImageOutcome | None, not_started: bool) -> ItemState:
+    """Classify received results separately from proof that work never started."""
+    if outcome is not None and outcome.success:
+        return "SUCCEEDED"
+    if outcome is not None:
+        return "FAILED"
+    return "NOT_STARTED" if not_started else "UNKNOWN"
+
+
+def _terminal_state(
+    items: list[ItemResult], accounting: PoolAccounting
+) -> tuple[ExecutionState, str | None]:
+    """Give execution/image failures precedence over cooperative cancellation."""
+    error = accounting.error_code
+    if error is None and any(item.state == "FAILED" for item in items):
+        error = "image_failure"
+    if error is not None:
+        return "FAILED", error
+    if all(item.state == "SUCCEEDED" for item in items):
+        return "COMPLETED", None
+    if accounting.cancel_requested:
+        return "CANCELLED", None
+    return "FAILED", "worker_failure"
+
+
 def _result(
     execution_id: str,
     manifest: DatasetManifest,
@@ -52,26 +78,17 @@ def _result(
     accounting: PoolAccounting,
     seconds: float,
 ) -> ExecutionResult:
-    items: list[ItemResult] = []
-    for index, (entry, outcome) in enumerate(
-        zip(manifest.entries, accounting.outcomes, strict=True)
-    ):
-        item_state: ItemState
-        if outcome is not None:
-            item_state = "SUCCEEDED" if outcome.success else "FAILED"
-        else:
-            item_state = "NOT_STARTED" if index in accounting.not_started else "UNKNOWN"
-        items.append(ItemResult(entry.relative_path, item_state, outcome))
-    error = accounting.error_code
-    if error is None and any(item.state == "FAILED" for item in items):
-        error = "image_failure"
-    state: ExecutionState = "COMPLETED"
-    if error is not None:
-        state = "FAILED"
-    elif any(item.state != "SUCCEEDED" for item in items):
-        state = "CANCELLED" if accounting.cancel_requested else "FAILED"
-        if state == "FAILED":
-            error = "worker_failure"
+    items = [
+        ItemResult(
+            entry.relative_path,
+            _item_state(outcome, index in accounting.not_started),
+            outcome,
+        )
+        for index, (entry, outcome) in enumerate(
+            zip(manifest.entries, accounting.outcomes, strict=True)
+        )
+    ]
+    state, error = _terminal_state(items, accounting)
     return ExecutionResult(
         execution_id,
         manifest.sha256,

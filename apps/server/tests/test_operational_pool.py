@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from tachyron.execution import inspect_execution, run_local
+from tachyron.execution import inspect_execution, run_local, runner
 from tachyron.processing import (
     ImageOutcome,
     ManifestEntry,
@@ -206,5 +206,86 @@ def test_parent_interrupt_remains_cooperative_cancellation(
     assert result.state == "CANCELLED"
     assert result.cancel_requested
     assert result.error_code is None
+    assert pool.closed
+    assert inspect_execution(tmp_path / "output") == result
+
+
+def test_receipt_failure_stops_publication_but_keeps_received_outcomes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = make_manifest(tmp_path / "inputs")
+    pool = ControlledPool()
+    publish = Mock(side_effect=OSError("private receipt failure"))
+    monkeypatch.setattr(operational, "ProcessPoolExecutor", Mock(return_value=pool))
+    monkeypatch.setattr(operational, "wait", pool.complete)
+    monkeypatch.setattr(runner, "publish_outcome", publish)
+    result = run_local(manifest.root, tmp_path / "output", TransformConfig(2, 2), 2)
+    assert result.state == "FAILED"
+    assert result.error_code == "receipt_failure"
+    assert not result.cancel_requested
+    assert result.counts == {
+        "succeeded": 2,
+        "failed": 0,
+        "unknown": 0,
+        "not_started": 1,
+    }
+    publish.assert_called_once()
+    assert pool.closed
+    assert inspect_execution(tmp_path / "output") == result
+
+
+def test_collection_failure_drains_but_does_not_infer_acknowledgements(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = make_manifest(tmp_path / "inputs")
+    pool = ControlledPool()
+    monkeypatch.setattr(operational, "ProcessPoolExecutor", Mock(return_value=pool))
+    monkeypatch.setattr(
+        operational, "wait", Mock(side_effect=ValueError("private wait failure"))
+    )
+    result = run_local(manifest.root, tmp_path / "output", TransformConfig(2, 2), 2)
+    assert result.state == "FAILED"
+    assert result.error_code == "worker_failure"
+    assert not result.cancel_requested
+    assert result.counts == {
+        "succeeded": 0,
+        "failed": 0,
+        "unknown": 2,
+        "not_started": 1,
+    }
+    assert len(list((tmp_path / "output").glob("*.png"))) == 2
+    assert pool.closed
+    assert inspect_execution(tmp_path / "output") == result
+
+
+@pytest.mark.parametrize(
+    ("failure", "state", "cancel_requested"),
+    [
+        (RuntimeError("private unsupported runtime"), "FAILED", False),
+        (KeyboardInterrupt(), "CANCELLED", True),
+    ],
+)
+def test_startup_check_failure_closes_the_constructed_pool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: BaseException,
+    state: str,
+    cancel_requested: bool,
+) -> None:
+    manifest = make_manifest(tmp_path / "inputs")
+    pool = ControlledPool()
+    monkeypatch.setattr(operational, "ProcessPoolExecutor", Mock(return_value=pool))
+    monkeypatch.setattr(operational, "check_startup_support", Mock(side_effect=failure))
+    result = run_local(manifest.root, tmp_path / "output", TransformConfig(2, 2), 2)
+    assert result.state == state
+    assert result.cancel_requested is cancel_requested
+    assert result.error_code == (None if cancel_requested else "worker_failure")
+    assert result.counts == {
+        "succeeded": 0,
+        "failed": 0,
+        "unknown": 0,
+        "not_started": 3,
+    }
+    assert not pool.calls
     assert pool.closed
     assert inspect_execution(tmp_path / "output") == result
