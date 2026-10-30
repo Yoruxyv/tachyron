@@ -135,40 +135,52 @@ def run_local(
     validate_limits(limits)
     with experiment_lock():
         manifest = build_manifest(root, limits)
-        _admit(manifest, output, config)
-        directory = prepare_run(manifest, output, config)
-        (directory / "records").mkdir()
-        execution_id = str(uuid4())
-        admission: dict[str, object] = {
-            "schema_version": 1,
-            "mode": "local-execution-v1",
-            "execution_id": execution_id,
-            "created_at": datetime.now(UTC).isoformat(),
-            "workers": workers,
-            "pipeline": "resize-grayscale-v1",
-            "config": asdict(config),
-            "limits": asdict(manifest.limits),
-            "manifest": {
-                "sha256": manifest.sha256,
-                "total_bytes": manifest.total_bytes,
-                "entries": [asdict(entry) for entry in manifest.entries],
-            },
-            "environment": asdict(capture_environment()),
-        }
-        publish_bytes(directory, "admission.json", encode(admission))
-        start = perf_counter()
-        accounting = run_accounted(
-            manifest,
-            directory,
-            config,
-            workers,
-            cancelled=cancelled or (lambda: False),
-            on_outcome=lambda index, outcome: publish_outcome(
-                directory, execution_id, index, outcome
-            ),
-        )
-        result = _result(
-            execution_id, manifest, workers, accounting, perf_counter() - start
-        )
-        publish_bytes(directory, "execution.json", encode(result.to_dict()))
-        return result
+        return _run_manifest(manifest, output, config, workers, cancelled=cancelled)
+
+
+def _run_manifest(
+    manifest: DatasetManifest,
+    output: Path,
+    config: TransformConfig,
+    workers: int,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+) -> ExecutionResult:
+    """Run a frozen manifest while the caller owns the cooperative workload lock."""
+    _admit(manifest, output, config)
+    directory = prepare_run(manifest, output, config)
+    (directory / "records").mkdir()
+    execution_id = str(uuid4())
+    admission: dict[str, object] = {
+        "schema_version": 1,
+        "mode": "local-execution-v1",
+        "execution_id": execution_id,
+        "created_at": datetime.now(UTC).isoformat(),
+        "workers": workers,
+        "pipeline": "resize-grayscale-v1",
+        "config": asdict(config),
+        "limits": asdict(manifest.limits),
+        "manifest": {
+            "sha256": manifest.sha256,
+            "total_bytes": manifest.total_bytes,
+            "entries": [asdict(entry) for entry in manifest.entries],
+        },
+        "environment": asdict(capture_environment()),
+    }
+    publish_bytes(directory, "admission.json", encode(admission))
+    start = perf_counter()
+    accounting = run_accounted(
+        manifest,
+        directory,
+        config,
+        workers,
+        cancelled=cancelled or (lambda: False),
+        on_outcome=lambda index, outcome: publish_outcome(
+            directory, execution_id, index, outcome
+        ),
+    )
+    result = _result(
+        execution_id, manifest, workers, accounting, perf_counter() - start
+    )
+    publish_bytes(directory, "execution.json", encode(result.to_dict()))
+    return result

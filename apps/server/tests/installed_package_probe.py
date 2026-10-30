@@ -110,6 +110,27 @@ def check_base(root: Path) -> None:
         next(output.glob("*.png")).read_bytes()
         == next((root / "sequential").glob("*.png")).read_bytes()
     )
+    adaptive = root / "adaptive"
+    automatic = command(
+        "tachyron-execute",
+        "adaptive",
+        str(dataset),
+        "--output",
+        str(adaptive),
+        "--width",
+        "2",
+        "--height",
+        "2",
+        cwd=root,
+    )
+    assert automatic["state"] == "COMPLETED"
+    assert automatic["mode"] == "adaptive-calibration-v4"
+    assert (
+        command("tachyron-execute", "inspect-adaptive", str(adaptive), cwd=root)[
+            "state"
+        ]
+        == "COMPLETED"
+    )
     experiment = root / "experiment"
     measured = command(
         "tachyron-benchmark",

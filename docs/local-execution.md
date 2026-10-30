@@ -2,8 +2,9 @@
 
 `tachyron-execute` processes one explicitly selected local dataset with a fixed
 1/2/4/8-process spawn pool. It supports admission of up to 10,000 files through a
-separate `local-execution-v1` contract. Automatic worker selection, worker lifecycle
-events, HTTP admission and dashboard integration are deferred.
+separate `local-execution-v1` contract. The separate
+[adaptive workflow](adaptive-execution.md) adds bounded worker calibration.
+Worker lifecycle events, HTTP admission and dashboard integration remain deferred.
 
 ## Run and inspect
 
@@ -163,9 +164,9 @@ normally changes when new Python modules are added.
 
 ## Stage B prerequisites and smallest scope
 
-Stage B requires separate authorization. Reuse this fixed-N runner and the current
-image processor; keep scientific benchmark-v1 and this fixed-N CLI functional.
-Before implementation, settle these specific contracts:
+Stage B now implements these prerequisites through the separate
+[adaptive execution contract](adaptive-execution.md). The fixed-N interface remains
+functional. The following boundaries guided that implementation:
 
 1. Define a versioned calibration/selection receipt referencing the full input
    manifest and config. Keep sample outputs and execution directories separate.
@@ -184,9 +185,7 @@ Before implementation, settle these specific contracts:
    heterogeneous images, tiny batches, noisy trials and a slower adaptive result.
    Generated repeated fixtures prove mechanics only, not an optimal worker policy.
 
-The smallest Stage B implementation is a local calibration command/report plus
-an explicit selection result feeding `run_local` once. Hold the cooperative lock
-across calibration and final execution without nested acquisition; this needs a
-small ownership adjustment within operational execution, with exclusion tests.
-No worker event transport, API job integration, SQLite migration or React change
-is needed for that slice. Those belong to separately authorized later stages.
+The adaptive workflow owns the cooperative lock across calibration and final
+execution, using the same internal manifest runner as `run_local` without nested
+acquisition. Worker event transport, API job integration, SQLite migrations and
+React changes remain separate later stages.
