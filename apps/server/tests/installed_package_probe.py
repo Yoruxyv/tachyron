@@ -82,6 +82,34 @@ def check_base(root: Path) -> None:
             assert processed.mode == "L"
     reports[1].pop("execution")
     assert reports[0] == reports[1]
+    output = root / "operational"
+    executed = command(
+        "tachyron-execute",
+        "run",
+        str(dataset),
+        "--output",
+        str(output),
+        "--workers",
+        "2",
+        "--width",
+        "2",
+        "--height",
+        "2",
+        cwd=root,
+    )
+    assert executed["mode"] == "local-execution-v1"
+    assert executed["state"] == "COMPLETED"
+    assert executed["counts"] == {
+        "succeeded": 1,
+        "failed": 0,
+        "unknown": 0,
+        "not_started": 0,
+    }
+    assert command("tachyron-execute", "inspect", str(output), cwd=root) == executed
+    assert (
+        next(output.glob("*.png")).read_bytes()
+        == next((root / "sequential").glob("*.png")).read_bytes()
+    )
     experiment = root / "experiment"
     measured = command(
         "tachyron-benchmark",

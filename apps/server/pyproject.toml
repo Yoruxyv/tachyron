@@ -22,6 +22,7 @@ dependencies = [
 [project.scripts]
 tachyron-process = "tachyron.cli:main"
 tachyron-benchmark = "tachyron.benchmark_cli:main"
+tachyron-execute = "tachyron.execution.cli:main"
 
 [project.optional-dependencies]
 api = ["fastapi>=0.115,<1", "pydantic>=2.10,<3", "uvicorn>=0.34,<1", "python-multipart==0.0.32"]
