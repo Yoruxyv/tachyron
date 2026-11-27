@@ -60,6 +60,20 @@ class AdmissionError(ValueError):
         self.status = status
 
 
+def _benchmark_batch_count(request: RunRequest, manifest: DatasetManifest) -> int:
+    """Check output and comparison budgets before reserving the queue slot."""
+    input_count = len(manifest.entries)
+    transform = request.transform()
+    manifest.limits.check_output(transform, input_count)
+    schedule = request.benchmark_config()
+    if isinstance(schedule, CustomBenchmarkConfig):
+        try:
+            schedule.validate_budget(input_count, transform)
+        except BenchmarkError as error:
+            raise AdmissionError("comparison_budget_exceeded", 422) from error
+    return len(schedule.counts) * (request.repetitions + 1)
+
+
 class Coordinator:
     """Own one benchmark consumer and only queued/active cancellation signals."""
 
@@ -165,14 +179,7 @@ class Coordinator:
             if self._operation is not None:
                 raise AdmissionError("workload_busy", 409)
             manifest = self.resolve_manifest(request.dataset_id)
-            transform = request.transform()
-            manifest.limits.check_output(transform, len(manifest.entries))
-            schedule = request.benchmark_config()
-            if isinstance(schedule, CustomBenchmarkConfig):
-                try:
-                    schedule.validate_budget(len(manifest.entries), transform)
-                except BenchmarkError as error:
-                    raise AdmissionError("comparison_budget_exceeded", 422) from error
+            total_batches = _benchmark_batch_count(request, manifest)
             if len(self._queue) >= self.settings.queue_capacity:
                 raise AdmissionError("queue_full", 429)
             job = Job(
@@ -181,7 +188,7 @@ class Coordinator:
                 manifest_sha256=manifest.sha256,
                 input_count=len(manifest.entries),
                 created_at=stamp(),
-                total_batches=len(schedule.counts) * (request.repetitions + 1),
+                total_batches=total_batches,
             )
             self._signals[job.id] = Event()
             self._queue.append(job.id)

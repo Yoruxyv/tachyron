@@ -89,6 +89,9 @@ test('runs a custom comparison and opens its saved worker evidence', async ({
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
   await expect(page.locator('canvas')).toHaveCount(2);
+  await expect(
+    page.getByText('Mean of 1 measured run', { exact: true }),
+  ).toBeVisible();
   if (wide) {
     await expect(
       page.getByText('Showing 4 of 5 measured configurations.'),
@@ -98,8 +101,8 @@ test('runs a custom comparison and opens its saved worker evidence', async ({
     path: testInfo.outputPath('real-custom-highlights.png'),
   });
   await page.getByRole('link', { name: 'Compare', exact: true }).click();
-  await resultsLink.focus();
-  await page.keyboard.press('Enter');
+  await expect(page.locator('canvas')).toHaveCount(6);
+  await resultsLink.press('Enter');
   const heading = page.getByRole('heading', {
     name: 'All worker results',
     level: 1,
