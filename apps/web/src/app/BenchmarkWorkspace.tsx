@@ -12,6 +12,8 @@ import type { useHistory } from '@/features/history/hooks/useHistory';
 import type { useJob } from '@/features/benchmarks/hooks/useJob';
 import type { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
+import LiveWorkerMonitor from '@/features/operations/LiveWorkerMonitor';
+
 interface Props {
   readonly importAction?: ReactNode;
   readonly importing?: boolean;
@@ -124,6 +126,7 @@ export default function BenchmarkWorkspace({
               : undefined
           }
         />
+        <LiveWorkerMonitor />
       </div>
     );
 

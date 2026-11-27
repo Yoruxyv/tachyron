@@ -14,7 +14,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        'uv run --locked --project ../server python scripts/serve-test-api.py --with-test-dataset',
+        'uv run --locked --project ../server python scripts/serve-test-api.py --with-test-dataset --with-operational-datasets',
       url: 'http://127.0.0.1:8001/health',
       timeout: 30000,
       reuseExistingServer: false,
