@@ -114,7 +114,12 @@ def _execute(
 
 
 def run_parallel(
-    manifest: DatasetManifest, output_dir: Path, config: TransformConfig, workers: int
+    manifest: DatasetManifest,
+    output_dir: Path,
+    config: TransformConfig,
+    workers: int,
+    *,
+    custom_comparison: bool = False,
 ) -> BatchResult:
     """Execute a fixed workload with an explicitly selected spawn-process pool.
 
@@ -127,7 +132,8 @@ def run_parallel(
         manifest: Immutable ordered workload and resource policy.
         output_dir: New per-run directory outside the dataset.
         config: Existing Pillow transformation shared with sequential execution.
-        workers: Explicit pool limit: 1, 2, 4, or 8. Oversubscription warns.
+        workers: Explicit pool limit: 1, 2, 4, or 8 by default. Oversubscription warns.
+        custom_comparison: Accept bounded custom benchmark counts after benchmark admission.
 
     Returns:
         Complete manifest-ordered outcomes and a portable run.json report.
@@ -141,7 +147,10 @@ def run_parallel(
     """
     if isinstance(workers, bool) or not isinstance(workers, int):
         raise TypeError("Worker count must be an integer")
-    if workers not in (1, 2, 4, 8):
+    if custom_comparison:
+        if not 1 <= workers <= 16:
+            raise ValueError("Custom benchmark workers must be 1-16")
+    elif workers not in (1, 2, 4, 8):
         raise ValueError("Worker count must be 1, 2, 4, or 8")
     cpu_count = os.cpu_count()
     if cpu_count is not None and workers > cpu_count:

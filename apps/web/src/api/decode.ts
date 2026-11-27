@@ -1,4 +1,6 @@
 import {
+  maxCustomConfigurations,
+  maxCustomWorkerCount,
   workers,
   type Dataset,
   type Distribution,
@@ -56,6 +58,32 @@ export function array<T>(value: unknown, parse: (value: unknown) => T): T[] {
   return value.map((item: unknown) => parse(item));
 }
 
+export function isBenchmarkId(value: string) {
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value);
+}
+
+function benchmarkId(value: unknown) {
+  const id = string(value);
+  if (!isBenchmarkId(id)) throw invalid();
+  return id;
+}
+
+export function parseWorkerCounts(value: unknown): number[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > maxCustomConfigurations
+  )
+    throw invalid();
+  const counts = array(value, integer).sort((left, right) => left - right);
+  if (
+    counts.some((count) => count < 1 || count > maxCustomWorkerCount) ||
+    new Set(counts).size !== counts.length
+  )
+    throw invalid();
+  return counts;
+}
+
 export function timestamp(value: unknown): string {
   const result = string(value);
   if (!Number.isFinite(Date.parse(result))) throw invalid();
@@ -108,6 +136,9 @@ export function parseRequest(value: unknown): RunRequest {
     seed: integer(data.seed),
     sampling_interval: number(data.sampling_interval),
     tiny: boolean(data.tiny),
+    ...(data.worker_counts === undefined
+      ? {}
+      : { worker_counts: parseWorkerCounts(data.worker_counts) }),
   };
   if (
     request.width < 1 ||
@@ -145,8 +176,7 @@ function state(value: unknown): JobState {
  */
 export function parseJob(value: unknown): Job {
   const data = object(value);
-  const id = string(data.id);
-  if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/iu.test(id)) throw invalid();
+  const id = benchmarkId(data.id);
   const job = {
     id,
     request: parseRequest(data.request),
@@ -166,6 +196,12 @@ export function parseJob(value: unknown): Job {
   };
   if (job.total_batches < 1 || job.completed_batches > job.total_batches)
     throw invalid();
+  if (
+    job.request.worker_counts &&
+    job.total_batches !==
+      job.request.worker_counts.length * (job.request.repetitions + 1)
+  )
+    throw invalid();
   return job;
 }
 
@@ -183,8 +219,7 @@ function distribution(value: unknown): Distribution {
 
 function summary(value: unknown): WorkerSummary {
   const data = object(value);
-  const worker = workers.find((count) => count === data.workers);
-  if (worker === undefined) throw invalid();
+  const worker = integer(data.workers);
   return {
     workers: worker,
     measured_count: integer(data.measured_count),
@@ -203,19 +238,36 @@ function summary(value: unknown): WorkerSummary {
 /**
  * Preserve server statistics while requiring one entry per worker configuration.
  * @param value Untrusted summary collection.
- * @returns Summaries ordered by 1, 2, 4, and 8 workers; missing observations stay null.
+ * @param counts Declared worker counts in numeric order, defaulting to the v1 matrix.
+ * @returns Ordered summaries with missing observations preserved as null.
  * @throws {Error} A configuration is missing, duplicated, unsupported, or malformed.
  */
-export function parseSummaries(value: unknown): WorkerSummary[] {
+export function parseSummaries(
+  value: unknown,
+  counts: readonly number[] = workers,
+): WorkerSummary[] {
   const summaries = array(value, summary).sort(
     (left, right) => left.workers - right.workers,
   );
   if (
-    summaries.length !== workers.length ||
-    summaries.some((item, index) => item.workers !== workers[index])
+    summaries.length !== counts.length ||
+    summaries.some((item, index) => item.workers !== counts[index])
   )
     throw invalid();
   return summaries;
+}
+
+function validMeasuredRounds(summary: WorkerSummary, repetitions: number) {
+  const { measured_count: count, elapsed } = summary;
+  if (
+    count > repetitions ||
+    summary.complete !== (count === repetitions) ||
+    summary.cpu_runs_available > count ||
+    summary.memory_runs_available > count
+  )
+    return false;
+  if (count === 0) return elapsed === null;
+  return elapsed?.count === count && (elapsed.mean ?? 0) > 0;
 }
 
 /**
@@ -227,16 +279,35 @@ export function parseSummaries(value: unknown): WorkerSummary[] {
  */
 export function parseMetrics(value: unknown): Metrics {
   const data = object(value);
-  if (data.schema_version !== 1) throw invalid();
+  if (data.schema_version !== 1 && data.schema_version !== 2) throw invalid();
   const experiment = object(data.experiment);
+  const counts =
+    data.schema_version === 2
+      ? parseWorkerCounts(object(experiment.config).worker_counts)
+      : workers;
+  const summaries = parseSummaries(data.summaries, counts);
+  const status = string(experiment.status);
+  const baseline = summaries.find((row) => row.workers === 1 && row.complete);
+  if (
+    data.schema_version === 2 &&
+    (status !== 'success' || !baseline) &&
+    summaries.some(
+      (summary) =>
+        summary.speedup !== null || summary.efficiency_percent !== null,
+    )
+  )
+    throw invalid();
   const context = object(experiment.context);
   const environment = object(context.environment);
   return {
     schema_version: data.schema_version,
     context_id: string(data.context_id),
-    summaries: parseSummaries(data.summaries),
+    summaries,
     experiment: {
-      status: string(experiment.status),
+      ...(experiment.experiment_id !== undefined || data.schema_version === 2
+        ? { experiment_id: benchmarkId(experiment.experiment_id) }
+        : {}),
+      status,
       context: {
         tiny: boolean(context.tiny),
         environment: {
@@ -252,16 +323,32 @@ export function parseMetrics(value: unknown): Metrics {
 
 export function parseHistoryItem(value: unknown): HistoryItem {
   const data = object(value);
+  const job = parseJob(data.job);
   return {
-    job: parseJob(data.job),
-    summaries: nullable(data.summaries, parseSummaries),
+    job,
+    summaries: nullable(data.summaries, (summaries) =>
+      parseSummaries(summaries, job.request.worker_counts),
+    ),
   };
 }
 
 export function parseHistoryDetail(value: unknown): HistoryDetail {
   const data = object(value);
-  return {
-    job: parseJob(data.job),
-    result: nullable(data.result, parseMetrics),
-  };
+  const job = parseJob(data.job);
+  const result = nullable(data.result, parseMetrics);
+  if (result) {
+    const requested = job.request.worker_counts;
+    if (result.schema_version !== (requested ? 2 : 1)) throw invalid();
+    if (
+      requested &&
+      (result.summaries.length !== requested.length ||
+        result.summaries.some(
+          (summary, index) =>
+            summary.workers !== requested[index] ||
+            !validMeasuredRounds(summary, job.request.repetitions),
+        ))
+    )
+      throw invalid();
+  }
+  return { job, result };
 }

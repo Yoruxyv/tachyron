@@ -1,8 +1,15 @@
 import type { ReactNode } from 'react';
 
-import type { WorkerCount, WorkerSummary } from '@/api/contracts';
+import type { WorkerSummary } from '@/api/contracts';
 
-import { chartDefinitions, chartValues, type ChartMetric } from './chartData';
+import {
+  chartDefinitions,
+  chartValues,
+  fastestCounts,
+  highlightCounts,
+  measuredCounts,
+  type ChartMetric,
+} from './chartData';
 import { metric } from '@/lib/format';
 
 export default function ChartPanel({
@@ -10,12 +17,16 @@ export default function ChartPanel({
   selected,
   summaries,
   overview = false,
+  full = false,
+  resultsHref,
   children,
 }: {
   readonly kind: ChartMetric;
-  readonly selected: WorkerCount;
+  readonly selected: number;
   readonly summaries: readonly WorkerSummary[];
   readonly overview?: boolean;
+  readonly full?: boolean;
+  readonly resultsHref?: string | undefined;
   readonly children: ReactNode;
 }) {
   const definition = chartDefinitions.find((item) => item.id === kind);
@@ -24,15 +35,25 @@ export default function ChartPanel({
     (item) => item.workers === selected && item.complete,
   );
   const baseline = summaries.find(
-    (item) => item.workers === 1 && item.complete,
+    (item) => item.workers === 1 && (item.complete || full),
   );
   let note = 'Select a point to inspect a worker count.';
   if (definition.type === 'bar')
     note = 'Select a bar to inspect a worker count.';
-  if (kind === 'elapsed')
-    note += ` Baseline: ${metric(baseline?.elapsed?.mean, ' seconds', 1)}.`;
-  if (chartValues(summaries, kind).every((value) => value === null))
+  if (
+    chartValues(summaries, kind, measuredCounts(summaries), full).every(
+      (value) => value === null,
+    )
+  )
     note = 'No observations available for this metric.';
+  if (kind === 'elapsed')
+    note += ` One-worker pool baseline · ${metric(baseline?.elapsed?.mean, ' seconds', 1)}.`;
+  const total = measuredCounts(summaries).length;
+  const highlights =
+    kind === 'elapsed' && !full
+      ? highlightCounts(summaries, selected).length
+      : total;
+  const fastest = kind === 'elapsed' ? fastestCounts(summaries) : [];
   return (
     <section
       className={`card chart-card ${kind}${overview ? ' overview-chart' : ''}`}
@@ -74,7 +95,27 @@ export default function ChartPanel({
           </strong>
         </div>
       ) : (
-        <p className="chart-note">{note}</p>
+        <div className="chart-caption">
+          <p className="chart-note">{note}</p>
+          {highlights < total && (
+            <p className="chart-note">
+              Showing {highlights} of {total} measured configurations.
+            </p>
+          )}
+          {fastest.length > 0 && (
+            <p className="chart-note">
+              {fastest.length > 1
+                ? 'Tied lowest observed mean'
+                : 'Lowest observed mean'}{' '}
+              · {fastest.map((count) => `${count}W`).join(', ')}.
+            </p>
+          )}
+          {kind === 'elapsed' && resultsHref && !full && (
+            <a href={resultsHref} className="worker-results-link">
+              View all worker results <span aria-hidden="true">↗</span>
+            </a>
+          )}
+        </div>
       )}
     </section>
   );

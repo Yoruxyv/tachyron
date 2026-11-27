@@ -9,6 +9,7 @@ import { views, type View } from './useNavigation';
 
 interface Props {
   readonly view: View;
+  readonly workerResults?: boolean;
   readonly navigate: (view: View) => void;
   readonly active: boolean;
   readonly children: ReactNode;
@@ -20,6 +21,7 @@ interface Props {
 }
 export default function Shell({
   view,
+  workerResults = false,
   navigate,
   active,
   children,
@@ -30,17 +32,20 @@ export default function Shell({
   workspaceStatus,
 }: Props) {
   const main = useRef<HTMLElement>(null);
-  const previous = useRef(view);
+  const screen = workerResults ? 'worker-results' : view;
+  const previous = useRef<View | 'worker-results'>(view);
+  const heading = useRef<HTMLHeadingElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
-    if (previous.current !== view) {
-      main.current?.focus({ preventScroll: true });
+    if (previous.current !== screen) {
+      const target = workerResults ? heading.current : main.current;
+      target?.focus({ preventScroll: true });
       window.scrollTo(0, 0);
-      previous.current = view;
+      previous.current = screen;
     }
     setExpanded(false);
-  }, [view]);
+  }, [screen, workerResults]);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (document.querySelector('dialog[open]')) return;
@@ -139,8 +144,14 @@ export default function Shell({
       <div className="main-wrapper">
         <header className="top-header">
           <div className="header-title">
-            <h1>{meta?.title}</h1>
-            <p>{meta?.subtitle}</p>
+            <h1 ref={heading} tabIndex={workerResults ? -1 : undefined}>
+              {workerResults ? 'All worker results' : meta?.title}
+            </h1>
+            <p>
+              {workerResults
+                ? 'Measured evidence for one saved benchmark'
+                : meta?.subtitle}
+            </p>
           </div>
           <div className="header-actions">
             <button

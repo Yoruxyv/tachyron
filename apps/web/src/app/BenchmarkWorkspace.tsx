@@ -1,9 +1,14 @@
 import { useState, type ReactNode } from 'react';
-import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
+import { isTerminal, type Dataset } from '@/api/contracts';
 import type { View } from '@/components/useNavigation';
 
 import ApiStatus from '@/features/diagnostics/ApiStatus';
 import Comparison from '@/features/history/Comparison';
+import AllWorkerResults from '@/features/history/AllWorkerResults';
+import {
+  inspectedCount,
+  measuredCounts,
+} from '@/features/benchmarks/results/chartData';
 import History from '@/features/history/History';
 import JobForm from '@/features/benchmarks/experiments/JobForm';
 import JobProgress from '@/features/benchmarks/experiments/JobProgress';
@@ -23,6 +28,8 @@ interface Props {
   readonly importAction?: ReactNode;
   readonly importing?: boolean;
   readonly view: View;
+  readonly workerResults: boolean;
+  readonly comparisonId: string | null;
   readonly navigate: (view: View) => void;
   readonly datasets: Dataset[];
   readonly datasetError: string;
@@ -30,8 +37,8 @@ interface Props {
   readonly execution: ReturnType<typeof useJob>;
   readonly active: boolean;
   readonly history: ReturnType<typeof useHistory>;
-  readonly selected: WorkerCount;
-  readonly select: (workers: WorkerCount) => void;
+  readonly selected: number;
+  readonly select: (workers: number) => void;
   readonly datasetId: string;
   readonly selectDataset: (id: string) => void;
   readonly health: ReturnType<typeof useApiHealth>;
@@ -44,6 +51,8 @@ interface Props {
  */
 export default function BenchmarkWorkspace({
   view,
+  workerResults,
+  comparisonId,
   navigate,
   datasets,
   datasetError,
@@ -65,6 +74,9 @@ export default function BenchmarkWorkspace({
     operations.mode ?? 'benchmark',
   );
   const formMode = execution.pending || active ? 'benchmark' : mode;
+  const inspectionCounts = measuredCounts(
+    history.detail?.result?.summaries ?? [],
+  );
   const form = (
     <JobForm
       datasets={datasets}
@@ -90,7 +102,8 @@ export default function BenchmarkWorkspace({
       datasetId={datasetId}
       selectDataset={selectDataset}
       compact={view === 'overview'}
-      selectedWorker={selected}
+      selectedWorker={inspectedCount(inspectionCounts, selected)}
+      {...(inspectionCounts.length > 0 && { inspectionCounts })}
       selectWorker={select}
     />
   );
@@ -163,6 +176,16 @@ export default function BenchmarkWorkspace({
     );
 
   if (view === 'api') return <ApiStatus health={health} />;
+
+  if (workerResults)
+    return (
+      <AllWorkerResults
+        id={comparisonId}
+        history={history}
+        selected={selected}
+        select={select}
+      />
+    );
 
   return (
     <Comparison

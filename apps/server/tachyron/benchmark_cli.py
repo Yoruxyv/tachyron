@@ -11,7 +11,13 @@ from pathlib import Path
 import psutil
 
 from tachyron.benchmarking.exports import publish_exports, read_experiment
-from tachyron.benchmarking.models import DEFAULT_CONFIG, BenchmarkConfig, Experiment
+from tachyron.benchmarking.models import (
+    DEFAULT_CONFIG,
+    BenchmarkConfig,
+    BenchmarkSchedule,
+    CustomBenchmarkConfig,
+    Experiment,
+)
 from tachyron.benchmarking.runner import run_experiment
 from tachyron.benchmarking.stats import summarize
 from tachyron.processing import TransformConfig, build_manifest
@@ -32,6 +38,7 @@ class Arguments(argparse.Namespace):
     seed: int
     sampling_interval: float
     tiny: bool
+    worker_counts: list[int] | None
 
 
 def _arguments(argv: Sequence[str] | None) -> Arguments:
@@ -52,6 +59,12 @@ def _arguments(argv: Sequence[str] | None) -> Arguments:
     run.add_argument("--width", type=int, default=DEFAULT_TRANSFORM.width)
     run.add_argument("--height", type=int, default=DEFAULT_TRANSFORM.height)
     run.add_argument("--repetitions", type=int, help="5-20 normally; 1-20 with --tiny")
+    run.add_argument(
+        "--worker-counts",
+        nargs="+",
+        type=int,
+        help="Custom matrix of 1-10 distinct counts from 1-16",
+    )
     run.add_argument("--seed", type=int, default=DEFAULT_CONFIG.seed)
     run.add_argument(
         "--sampling-interval", type=float, default=DEFAULT_CONFIG.sampling_interval
@@ -86,9 +99,18 @@ def _run(arguments: Arguments) -> Experiment:
         sampling_interval=arguments.sampling_interval,
         tiny=arguments.tiny,
     )
+    schedule: BenchmarkSchedule = config
+    if arguments.worker_counts is not None:
+        schedule = CustomBenchmarkConfig(
+            worker_counts=tuple(sorted(arguments.worker_counts)),
+            repetitions=config.repetitions,
+            seed=config.seed,
+            sampling_interval=config.sampling_interval,
+            tiny=config.tiny,
+        )
     transform = TransformConfig(arguments.width, arguments.height)
     manifest = build_manifest(arguments.dataset)
-    return run_experiment(manifest, arguments.output, transform, config)
+    return run_experiment(manifest, arguments.output, transform, schedule)
 
 
 def _compare(arguments: Arguments) -> Experiment:
@@ -117,7 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _run(arguments) if arguments.command == "run" else _compare(arguments)
         )
         response: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": experiment.config.schema_version,
             "experiment_id": experiment.experiment_id,
             "context_id": experiment.context.digest,
             "status": experiment.status,

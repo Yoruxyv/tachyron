@@ -34,6 +34,18 @@ test('runs the real tiny 1/2/4/8-worker comparison and restores saved evidence',
   await expect(
     page.getByText(/Tiny functional test\. These timings/),
   ).toBeVisible();
+  await page.getByRole('link', { name: /View all worker results/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'All worker results', level: 1 }),
+  ).toBeVisible();
+  await expect(page.getByText('Benchmark v1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('rowheader')).toHaveText([
+    '1W',
+    '2W',
+    '4W',
+    '8W',
+  ]);
+  await page.getByRole('link', { name: /Back to Compare/ }).click();
   await page.getByRole('button', { name: '8 workers', exact: true }).click();
   await expect(
     page.getByRole('button', { name: '8 workers', exact: true }),

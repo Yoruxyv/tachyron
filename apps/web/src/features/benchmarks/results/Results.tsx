@@ -1,31 +1,41 @@
 import { lazy, Suspense } from 'react';
 
-import { type HistoryDetail, type WorkerCount } from '@/api/contracts';
+import { workers, type HistoryDetail } from '@/api/contracts';
 import Icon from '@/components/Icon';
 import ChartBoundary from '@/components/ChartBoundary';
+import { comparisonHref } from '@/components/useNavigation';
 
-import { chartDefinitions } from './chartData';
+import { chartDefinitions, inspectedCount, measuredCounts } from './chartData';
 import ChartPanel from './ChartPanel';
 import { metric, timestamp } from '@/lib/format';
 import WorkerSelector from './WorkerSelector';
+import ResultsTable from './ResultsTable';
 
 const Charts = lazy(() => import('./Charts'));
 interface Props {
   readonly detail: HistoryDetail | null;
-  readonly selected: WorkerCount;
-  readonly select: (count: WorkerCount) => void;
+  readonly selected: number;
+  readonly select: (count: number) => void;
   readonly overview?: boolean;
 }
 
-export function Kpis({ detail, selected }: Pick<Props, 'detail' | 'selected'>) {
+export function Kpis({
+  detail,
+  selected: preferred,
+}: Pick<Props, 'detail' | 'selected'>) {
   const summaries =
     detail?.job.state === 'COMPLETED' &&
     detail.result?.experiment.status === 'success'
       ? detail.result.summaries
       : undefined;
+  const selected = inspectedCount(measuredCounts(summaries ?? []), preferred);
   const summary = summaries?.find(
     (item) => item.workers === selected && item.complete,
   );
+  const runCount = summary?.measured_count ?? 0;
+  const baselineMissing =
+    Boolean(summaries) &&
+    !summaries?.some((item) => item.workers === 1 && item.complete);
   const values = [
     {
       icon: 'time',
@@ -35,14 +45,16 @@ export function Kpis({ detail, selected }: Pick<Props, 'detail' | 'selected'>) {
         summary?.elapsed?.mean === null || summary?.elapsed?.mean === undefined
           ? ''
           : ' s',
-      note: `Mean of ${summary?.measured_count ?? 0} measured runs`,
+      note: `Mean of ${runCount} measured ${runCount === 1 ? 'run' : 'runs'}`,
     },
     {
       icon: 'speed',
       label: 'Parallel speedup',
       value: metric(summary?.speedup, '×', 2, 2),
       unit: '',
-      note: 'Against the 1-worker process pool',
+      note: baselineMissing
+        ? 'One-worker baseline unavailable'
+        : 'Against the 1-worker process pool',
     },
     {
       icon: 'cpu',
@@ -56,7 +68,9 @@ export function Kpis({ detail, selected }: Pick<Props, 'detail' | 'selected'>) {
       label: 'Scaling efficiency',
       value: metric(summary?.efficiency_percent, '%', 1),
       unit: '',
-      note: `Relative to ideal ${selected}× scaling`,
+      note: baselineMissing
+        ? 'One-worker baseline unavailable'
+        : `Relative to ideal ${selected}× scaling`,
     },
   ] as const;
   return (
@@ -80,7 +94,7 @@ export function Kpis({ detail, selected }: Pick<Props, 'detail' | 'selected'>) {
 
 export default function Results({
   detail,
-  selected,
+  selected: preferred,
   select,
   overview = false,
 }: Props) {
@@ -88,6 +102,11 @@ export default function Results({
     detail?.job.state === 'COMPLETED' &&
     detail.result?.experiment.status === 'success';
   const summaries = valid ? (detail.result?.summaries ?? []) : [];
+  const counts = measuredCounts(summaries);
+  const selected = inspectedCount(counts, preferred);
+  const resultsHref = detail?.result
+    ? comparisonHref(detail.job.id, true)
+    : undefined;
   const environment = valid
     ? detail.result?.experiment.context.environment
     : null;
@@ -101,66 +120,7 @@ export default function Results({
         Warm-ups excluded. Mean ± sample standard deviation (ddof = 1);
         unavailable observations stay unavailable. Ideal speedup is theoretical.
       </p>
-      <div className="table-scroll" aria-label="Measured results table">
-        <table>
-          <caption className="sr-only">
-            Measured metrics and spread by worker count
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Workers</th>
-              <th scope="col">Runs</th>
-              <th scope="col">Time mean ± SD (s)</th>
-              <th scope="col">Min–max (s)</th>
-              <th scope="col">Completed img/s</th>
-              <th scope="col">CPU (% of 1 core)</th>
-              <th scope="col">Peak RSS (MiB)</th>
-              <th scope="col">Speedup / ideal</th>
-              <th scope="col">Efficiency</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summaries.map((summary) => (
-              <tr
-                key={summary.workers}
-                data-selected={summary.workers === selected}
-              >
-                <th scope="row">
-                  <button
-                    type="button"
-                    aria-pressed={summary.workers === selected}
-                    onClick={() => select(summary.workers)}
-                  >
-                    {summary.workers}W
-                  </button>
-                </th>
-                <td>{summary.measured_count}</td>
-                <td>
-                  {metric(summary.elapsed?.mean)} ±{' '}
-                  {metric(summary.elapsed?.sample_stddev)}
-                </td>
-                <td>
-                  {metric(summary.elapsed?.minimum)}–
-                  {metric(summary.elapsed?.maximum)}
-                </td>
-                <td>{metric(summary.mean_throughput)}</td>
-                <td>
-                  {metric(summary.cpu_mean_core_percent)}{' '}
-                  <small>({summary.cpu_runs_available} runs)</small>
-                </td>
-                <td>
-                  {metric(summary.rss_peak_mib)}{' '}
-                  <small>({summary.memory_runs_available} runs)</small>
-                </td>
-                <td>
-                  {metric(summary.speedup, '×')} / {summary.workers}×
-                </td>
-                <td>{metric(summary.efficiency_percent, '%')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ResultsTable summaries={summaries} selected={selected} select={select} />
       <p className="fine-print">
         CPU: observed process tree; 100% equals one fully used logical core. RSS
         is sampled and may miss short-lived peaks. Spawn startup and teardown
@@ -190,7 +150,11 @@ export default function Results({
                 : 'Choose a saved experiment or run your first benchmark.'}
             </p>
           </div>
-          <WorkerSelector value={selected} onChange={select} />
+          <WorkerSelector
+            value={selected}
+            counts={counts.length ? counts : workers}
+            onChange={select}
+          />
         </div>
       )}
       {detail?.job.request.tiny && (
@@ -208,6 +172,7 @@ export default function Results({
               selected={selected}
               select={select}
               overview={overview}
+              resultsHref={resultsHref}
             />
           </Suspense>
         </ChartBoundary>
@@ -220,6 +185,7 @@ export default function Results({
               selected={selected}
               summaries={[]}
               overview={overview}
+              resultsHref={resultsHref}
             >
               <div className="chart-canvas chart-empty">
                 No complete measurements yet<span>{definition.unit}</span>

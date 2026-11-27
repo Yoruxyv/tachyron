@@ -7,7 +7,7 @@ import * as api from '@/api/benchmarks';
 import * as healthApi from '@/api/health';
 import JobForm from '@/features/benchmarks/experiments/JobForm';
 import JobProgress from '@/features/benchmarks/experiments/JobProgress';
-import Results from '@/features/benchmarks/results/Results';
+import Results, { Kpis } from '@/features/benchmarks/results/Results';
 import ApiStatus from '@/features/diagnostics/ApiStatus';
 import { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
@@ -31,6 +31,66 @@ function ApiStatusHarness() {
 }
 
 describe('dashboard behavior', () => {
+  it.each([
+    [0, 'Mean of 0 measured runs'],
+    [1, 'Mean of 1 measured run'],
+    [5, 'Mean of 5 measured runs'],
+  ])('formats the time KPI for %i measured runs', (count, label) => {
+    render(
+      <Kpis
+        detail={
+          detail.result
+            ? {
+                ...detail,
+                result: {
+                  ...detail.result,
+                  summaries: detail.result.summaries.map((row) => ({
+                    ...row,
+                    measured_count: count,
+                  })),
+                },
+              }
+            : null
+        }
+        selected={1}
+      />,
+    );
+    expect(screen.getByText(label)).toBeVisible();
+  });
+
+  it('keeps measured timings visible when a custom comparison omits the baseline', () => {
+    const result = detail.result;
+    if (!result) throw new Error('Expected measured fixture data');
+    render(
+      <Kpis
+        detail={{
+          ...detail,
+          result: {
+            ...result,
+            schema_version: 2,
+            summaries: result.summaries
+              .filter((row) => row.workers !== 1)
+              .map((row) => ({
+                ...row,
+                speedup: null,
+                efficiency_percent: null,
+              })),
+          },
+        }}
+        selected={2}
+      />,
+    );
+    expect(
+      within(screen.getByRole('region', { name: 'Execution time' })).getByText(
+        '4',
+      ),
+    ).toBeVisible();
+    for (const name of ['Parallel speedup', 'Scaling efficiency']) {
+      const card = within(screen.getByRole('region', { name }));
+      expect(card.getByText('Unavailable')).toBeVisible();
+      expect(card.getByText('One-worker baseline unavailable')).toBeVisible();
+    }
+  });
   it('consolidates identical history and evidence errors while retaining separate failures', async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, '', '/#history');

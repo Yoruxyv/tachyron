@@ -7,11 +7,13 @@ import sys
 from collections.abc import Callable
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from time import perf_counter
 from typing import cast
 from uuid import uuid4
 
+from tachyron.benchmarking.capacity import admit_custom
 from tachyron.benchmarking.exports import (
     encode_document,
     publish_exports,
@@ -20,7 +22,9 @@ from tachyron.benchmarking.exports import (
 from tachyron.benchmarking.models import (
     BenchmarkConfig,
     BenchmarkError,
+    BenchmarkSchedule,
     Context,
+    CustomBenchmarkConfig,
     Experiment,
     RunRecord,
     Telemetry,
@@ -104,7 +108,7 @@ def run_experiment(
     manifest: DatasetManifest,
     output_dir: Path,
     transform: TransformConfig,
-    config: BenchmarkConfig = DEFAULT_CONFIG,
+    config: BenchmarkSchedule = DEFAULT_CONFIG,
     *,
     cancelled: Callable[[], bool] | None = None,
     on_record: Callable[[RunRecord], None] | None = None,
@@ -130,6 +134,10 @@ def run_experiment(
         OSError: Output publication or successful-image cleanup failed.
     """
     with experiment_lock():
+        batch_runner = run_parallel
+        if isinstance(config, CustomBenchmarkConfig):
+            admit_custom(manifest, transform, config, cancelled)
+            batch_runner = partial(run_parallel, custom_comparison=True)
         directory = prepare_run(manifest, output_dir, transform)
         context = Context(
             manifest.sha256,
@@ -150,7 +158,7 @@ def run_experiment(
             "plan.json",
             encode_document(
                 {
-                    "schema_version": 1,
+                    "schema_version": config.schema_version,
                     "experiment_id": identifier,
                     "context_id": context.digest,
                     "context": asdict(context),
@@ -193,7 +201,7 @@ def run_experiment(
                     # Preserve the runtime guard if a pool violates its return contract.
                     batch = cast(
                         "BatchResult | None",
-                        run_parallel(
+                        batch_runner(
                             manifest,
                             directory / "batches" / step.run_id,
                             transform,

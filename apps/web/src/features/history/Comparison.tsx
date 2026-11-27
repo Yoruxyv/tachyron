@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 
-import type { WorkerCount } from '@/api/contracts';
 import Select from '@/components/Select';
 
 import Results from '@/features/benchmarks/results/Results';
@@ -9,8 +8,8 @@ import type { useHistory } from './hooks/useHistory';
 
 interface Props {
   readonly history: ReturnType<typeof useHistory>;
-  readonly selected: WorkerCount;
-  readonly select: (workers: WorkerCount) => void;
+  readonly selected: number;
+  readonly select: (workers: number) => void;
   readonly children: ReactNode;
   readonly historyView?: boolean;
 }

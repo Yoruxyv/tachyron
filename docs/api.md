@@ -108,6 +108,16 @@ Requests select only `resize-grayscale-v1`, width/height 1–4096, repetitions 5
 (1–20 with explicit `tiny: true`), seed 0–2³²−1, and sampling interval 0.01–10 s.
 The existing aggregate output-pixel limit is also enforced before admission.
 
+Omit `worker_counts` to use the legacy 1/2/4/8 schedule and unchanged v1 job and
+metrics formats. An optional `worker_counts` array, such as `[1, 3, 9]`, selects
+a custom schedule of 1–10 distinct integers from 1 to 16. Accepted custom requests
+store the counts in ascending order and return schema v2 metrics. Static custom
+schedule or workload overages return `422`. When a queued job exceeds host capacity
+at execution time, it becomes `FAILED` with `worker_capacity_unavailable` and no
+batches are started. A successful request with `worker_counts: [3, 9]` returns
+v2 summaries for 3 and 9 workers with `speedup` and `efficiency_percent` set to
+`null`. Include `1` to measure the baseline. See [custom comparison limits](benchmarking.md#custom-worker-comparisons).
+
 An optional `Idempotency-Key` contains 1–64 ASCII letters, digits, dots, underscores
 or hyphens. The same key and normalized request return the original job, including
 after restart or completion. Reusing a key for a different request returns
@@ -142,11 +152,13 @@ before the next cancellation boundary remains `COMPLETED`.
 `completed_batches/total_batches` is progress at batch boundaries. Image counters
 sum known attempts **including warm-ups and repeated images**, not distinct images.
 `unknown_batches` counts retained attempts whose counts could not be established.
-These counters never imply a partial comparison is scientifically valid. A crash
+For custom jobs, totals reflect the admitted schedule. These counters never imply
+a partial comparison is scientifically valid. A crash
 can lose the in-flight batch's counts; `server_interrupted` explicitly marks this
 uncertainty. Successful metrics require a fully completed experiment. Failed or
-cancelled history may contain raw evidence with incomplete/null summaries; absent
-evidence is null. Speedup uses the existing ratio of means against the one-worker
+cancelled history may contain raw evidence. The v1 incomplete summaries retain
+null statistics. Custom history can include successful measured rounds with no
+scaling ratios. Absent evidence is null. Speedup uses the existing ratio of means against the one-worker
 pool, and efficiency is expressed as a percentage. Actual worker utilization stays
 null where the existing sampler cannot establish it.
 

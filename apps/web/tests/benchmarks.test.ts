@@ -7,9 +7,14 @@ import {
   getJob,
   startJob,
 } from '@/api/benchmarks';
-import { parseJob, parseMetrics } from '@/api/decode';
+import {
+  parseHistoryDetail,
+  parseJob,
+  parseMetrics,
+  parseWorkerCounts,
+} from '@/api/decode';
 
-import { dataset, detail, job, metrics, request } from './fixtures';
+import { dataset, detail, job, metrics, request, summaries } from './fixtures';
 
 describe('benchmark API boundary', () => {
   it('reads typed datasets and preserves the server-owned workload metadata', async () => {
@@ -107,6 +112,82 @@ describe('benchmark API boundary', () => {
     });
     expect(parsed.summaries[0]?.cpu_mean_core_percent).toBeNull();
     expect(parseMetrics(metrics).summaries[3]?.cpu_mean_core_percent).toBe(560);
+  });
+
+  it('checks custom evidence against the saved schedule and requires a measured baseline for ratios', () => {
+    const target = {
+      ...job('COMPLETED'),
+      request: { ...request, worker_counts: [3, 9] },
+      total_batches: 12,
+      completed_batches: 12,
+    };
+    const result = {
+      ...metrics,
+      schema_version: 2,
+      experiment: {
+        ...metrics.experiment,
+        experiment_id: target.id,
+        config: { worker_counts: [3, 9] },
+      },
+      summaries: summaries.slice(0, 2).map((row, index) => ({
+        ...row,
+        workers: index ? 9 : 3,
+        speedup: null,
+        efficiency_percent: null,
+      })),
+    };
+    expect(
+      parseHistoryDetail({ job: target, result }).result?.summaries.map(
+        (row) => row.workers,
+      ),
+    ).toEqual([3, 9]);
+    expect(() =>
+      parseHistoryDetail({
+        job: { ...target, request: { ...request, worker_counts: [1, 9] } },
+        result,
+      }),
+    ).toThrow();
+    expect(() =>
+      parseMetrics({
+        ...result,
+        summaries: result.summaries.map((row) => ({ ...row, speedup: 1 })),
+      }),
+    ).toThrow();
+    expect(() =>
+      parseHistoryDetail({
+        job: target,
+        result: {
+          ...result,
+          summaries: result.summaries.map((row) => ({
+            ...row,
+            measured_count: 4,
+          })),
+        },
+      }),
+    ).toThrow();
+  });
+
+  it.each(
+    [[], [1, 1], [17], [0], [1.5], [true], ['9']].map((counts) => ({ counts })),
+  )('rejects invalid worker-count list $counts', ({ counts }) => {
+    expect(() => parseWorkerCounts(counts)).toThrow();
+  });
+
+  it('normalizes unordered valid counts', () => {
+    expect(parseWorkerCounts([9, 1, 3])).toEqual([1, 3, 9]);
+  });
+
+  it('rejects a valid result for a different saved benchmark', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(Response.json(detail)),
+    );
+    await expect(
+      getDetail(
+        '00000000-0000-4000-8000-000000000002',
+        new AbortController().signal,
+      ),
+    ).rejects.toBeInstanceOf(ApiError);
   });
 
   it('reads saved evidence without changing its comparison context', async () => {

@@ -6,9 +6,9 @@ import statistics
 from dataclasses import dataclass, replace
 
 from tachyron.benchmarking.models import (
-    WORKERS,
     BenchmarkError,
     Context,
+    CustomBenchmarkConfig,
     Experiment,
     RunRecord,
     Step,
@@ -208,6 +208,7 @@ def _compare_to_baseline(
 
 
 def _complete_summaries(
+    counts: tuple[int, ...],
     records: tuple[RunRecord, ...],
 ) -> tuple[WorkerSummary, ...]:
     """Aggregate complete evidence before comparing against the one-worker pool."""
@@ -220,10 +221,33 @@ def _complete_summaries(
                 if record.step.workers == workers and not record.step.warmup
             ),
         )
-        for workers in WORKERS
+        for workers in counts
     )
+    if counts[0] != 1:
+        return summaries
     baseline = summaries[0].elapsed.mean if summaries[0].elapsed is not None else None
     return tuple(_compare_to_baseline(summary, baseline) for summary in summaries)
+
+
+def _partial_custom(experiment: Experiment) -> tuple[WorkerSummary, ...]:
+    summaries: list[WorkerSummary] = []
+    for count in experiment.config.counts:
+        measured = tuple(
+            record
+            for record in experiment.records
+            if record.step.workers == count
+            and not record.step.warmup
+            and record.status == "success"
+        )
+        summary = (
+            _summarize_worker(count, measured)
+            if measured
+            else WorkerSummary(count, 0, False)
+        )
+        summaries.append(
+            replace(summary, complete=len(measured) == experiment.config.repetitions)
+        )
+    return tuple(summaries)
 
 
 def summarize(
@@ -243,9 +267,11 @@ def summarize(
     """
     validate(experiment)
     if experiment.status == "success":
-        return _complete_summaries(experiment.records)
+        return _complete_summaries(experiment.config.counts, experiment.records)
     if require_complete:
         raise BenchmarkError("An unsuccessful experiment is not a complete comparison")
+    if isinstance(experiment.config, CustomBenchmarkConfig):
+        return _partial_custom(experiment)
     return tuple(
         WorkerSummary(
             workers,
@@ -255,5 +281,5 @@ def summarize(
             ),
             False,
         )
-        for workers in WORKERS
+        for workers in experiment.config.counts
     )

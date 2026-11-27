@@ -49,16 +49,33 @@ is introduced. Keep this local API on loopback.
   separates upload progress from validation and durable registration. Imported
   datasets persist across API restarts. See [dataset imports](dataset-imports.md)
   for limits, supported browsers, cancellation and recovery behavior.
-- **Compare:** select one saved experiment and inspect 1/2/4/8-worker statistics
-  with six Chart.js charts and a tabular alternative.
+- **Compare:** select a saved experiment and inspect its measured worker counts
+  with six charts and a tabular alternative. **View all worker results** opens
+  a dedicated page with provenance, one selectable metric chart, the complete
+  measured table and a link to the raw API evidence.
 - **History:** 20 terminal jobs per page, dataset/job-ID search, status filters,
   selection, evidence inspection, and the raw API JSON link. Filters apply to the
   current page. Jobs and official results remain in backend SQLite.
 - **API Tests:** retryable process-liveness checks. HTTP load-test measurements
   remain explicitly unavailable; there is no production load generator.
 
-Each submission runs the backend's complete **1/2/4/8-worker process-pool matrix**.
-The worker selector changes inspection, never the submitted execution plan.
+Benchmark defaults to the **1/2/4/8-worker process-pool matrix**. In Experiments,
+enter comma-separated counts in **Benchmark settings → Custom worker counts** to
+compare a different bounded matrix on the same dataset and transform. The field
+accepts up to ten distinct integers from 1 through 16, subject to the
+[server’s workload and host checks](benchmarking.md#custom-worker-comparisons).
+The worker selector changes which result you inspect. Manual and Adaptive
+processing retain their existing worker policies.
+
+The compact elapsed chart displays at most four measured configurations. It pins
+the measured 1-worker baseline and the inspected configuration, then fills available
+slots by unrounded elapsed mean. Equal means are disclosed. If a saved selection
+is absent, inspection falls back to the lowest measured count. All Worker Results
+retains the Compare navigation item and supports bookmarks via
+`#compare/workers?experiment=<saved-job-id>`. It omits configurations without
+measured rounds and labels available partial evidence and missing metrics.
+Include `1` to measure the baseline. A comparison without it still shows its
+measured configurations. The dashboard marks speedup and efficiency unavailable.
 The header and experiment form share one registered dataset selection across views.
 Overview keeps dimensions, repetitions and tiny-test mode in **Benchmark settings**;
 validation opens that disclosure when a setting needs correction. Recent experiments

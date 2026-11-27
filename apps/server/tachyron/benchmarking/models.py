@@ -6,17 +6,28 @@ import json
 import math
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from typing import Literal
 from uuid import UUID, uuid5
 
 from tachyron.processing import ResourceLimits, TransformConfig
 
 WORKERS = (1, 2, 4, 8)
+MAX_CUSTOM_WORKERS = 16
+MAX_CUSTOM_COUNTS = 10
+MAX_CUSTOM_BATCHES = 120
+MAX_CUSTOM_PROCESS_STARTS = 1024
+MAX_CUSTOM_IMAGE_ATTEMPTS = 120_000
+MAX_CUSTOM_OUTPUT_PIXELS = 8_000_000_000
 TIMING_POLICY = "spawn-batch-e2e-v1"
 CPU_POLICY = "observed-tree-logical-core-percent-v1"
 
 
 class BenchmarkError(ValueError):
     """Benchmark configuration, evidence or comparison is invalid."""
+
+
+class BenchmarkCapacityError(BenchmarkError):
+    """The observed host capacity cannot support the requested custom matrix."""
 
 
 def integer(value: object, minimum: int = 0) -> bool:
@@ -69,7 +80,68 @@ class BenchmarkConfig:
                 "Sampling interval must be between 0.01 and 10 seconds"
             )
 
+    @property
+    def counts(self) -> tuple[int, ...]:
+        """Return the fixed benchmark-v1 matrix."""
+        return WORKERS
 
+    @property
+    def schema_version(self) -> Literal[1, 2]:
+        """Discriminate the serialized schedule and its derived evidence."""
+        return 1
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CustomBenchmarkConfig:
+    """Explicit v2 schedule using the same benchmark measurement method."""
+
+    worker_counts: tuple[int, ...]
+    repetitions: int = 5
+    seed: int = 2026
+    sampling_interval: float = 0.1
+    tiny: bool = False
+
+    def __post_init__(self) -> None:
+        BenchmarkConfig(self.repetitions, self.seed, self.sampling_interval, self.tiny)
+        counts = self.worker_counts
+        if not 1 <= len(counts) <= MAX_CUSTOM_COUNTS or any(
+            not integer(count, 1) or count > MAX_CUSTOM_WORKERS for count in counts
+        ):
+            raise BenchmarkError("Choose 1-10 worker counts between 1 and 16")
+        if tuple(sorted(set(counts))) != counts:
+            raise BenchmarkError("Custom worker counts must be distinct and ordered")
+        rounds = self.repetitions + 1
+        if (
+            len(counts) * rounds > MAX_CUSTOM_BATCHES
+            or sum(counts) * rounds > MAX_CUSTOM_PROCESS_STARTS
+        ):
+            raise BenchmarkError(
+                "Custom comparison schedule exceeds its batch or process-start budget"
+            )
+
+    @property
+    def counts(self) -> tuple[int, ...]:
+        """Return the tested matrix, in numeric order."""
+        return self.worker_counts
+
+    @property
+    def schema_version(self) -> Literal[1, 2]:
+        """Identify the explicit custom benchmark schedule."""
+        return 2
+
+    def validate_budget(self, input_count: int, transform: TransformConfig) -> None:
+        """Bound total attempts and output work, including all warm-ups."""
+        attempts = input_count * len(self.counts) * (self.repetitions + 1)
+        if (
+            attempts > MAX_CUSTOM_IMAGE_ATTEMPTS
+            or attempts * transform.width * transform.height > MAX_CUSTOM_OUTPUT_PIXELS
+        ):
+            raise BenchmarkError(
+                "Custom comparison exceeds its image-attempt or output-pixel budget"
+            )
+
+
+BenchmarkSchedule = CustomBenchmarkConfig | BenchmarkConfig
 DEFAULT_CONFIG = BenchmarkConfig()
 
 
@@ -210,8 +282,8 @@ class Step:
 
     def __post_init__(self) -> None:
         UUID(self.run_id)
-        if not integer(self.workers, 1) or self.workers not in WORKERS:
-            raise BenchmarkError("Worker count must be 1, 2, 4 or 8")
+        if not integer(self.workers, 1) or self.workers > MAX_CUSTOM_WORKERS:
+            raise BenchmarkError("Worker count is outside supported benchmark bounds")
         if (
             not isinstance(self.warmup, bool)
             or not integer(self.order)
@@ -224,13 +296,13 @@ class Step:
             )
 
 
-def make_plan(config: BenchmarkConfig, experiment_id: str) -> tuple[Step, ...]:
+def make_plan(config: BenchmarkSchedule, experiment_id: str) -> tuple[Step, ...]:
     """Seed each round's interleaving without modifying global random state."""
     namespace = UUID(experiment_id)
     plan: list[Step] = []
     for repetition in range(config.repetitions + 1):
         order = sorted(
-            WORKERS,
+            config.counts,
             key=lambda count: hashlib.sha256(
                 f"{config.seed}:{repetition}:{count}".encode()
             ).digest(),
@@ -376,7 +448,7 @@ class Experiment:
 
     experiment_id: str
     context: Context
-    config: BenchmarkConfig
+    config: BenchmarkSchedule
     plan: tuple[Step, ...]
     records: tuple[RunRecord, ...]
     status: str

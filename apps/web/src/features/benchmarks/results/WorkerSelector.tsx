@@ -1,17 +1,23 @@
-import { workers, type WorkerCount } from '@/api/contracts';
+import { workers } from '@/api/contracts';
 
 export default function WorkerSelector({
   value,
   onChange,
+  counts = workers,
 }: {
-  readonly value: WorkerCount;
-  readonly onChange: (count: WorkerCount) => void;
+  readonly value: number;
+  readonly onChange: (count: number) => void;
+  readonly counts?: readonly number[];
 }) {
   return (
     <fieldset className="worker-selector">
       <legend>Inspect worker count</legend>
-      <div>
-        {workers.map((count) => (
+      <div
+        style={{
+          gridTemplateColumns: `repeat(${Math.min(counts.length, 5)}, minmax(0, 1fr))`,
+        }}
+      >
+        {counts.map((count) => (
           <button
             key={count}
             type="button"

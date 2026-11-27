@@ -684,10 +684,14 @@
 .chart-key i.muted {
   background: #5a646f;
 }
-.card > .chart-note {
+.chart-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 7px;
   font-size: 10px;
   color: #8b939e;
-  margin-top: 7px;
 }
 .cpu-footer {
   margin-top: 11px;
@@ -748,7 +752,6 @@
 }
 .worker-selector > div {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 5px;
   padding: 4px;
   border: 1px solid #363e47;

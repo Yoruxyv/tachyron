@@ -82,8 +82,10 @@ export default function JobProgress({
           {job.state === 'FAILED'
             ? 'The experiment failed.'
             : 'The experiment was cancelled.'}{' '}
-          Complete scaling results are unavailable. Server code:{' '}
-          <code>{job.error_code ?? 'none'}</code>.
+          {job.error_code === 'worker_capacity_unavailable'
+            ? 'The requested worker counts exceed current CPU or memory capacity. Try a smaller schedule. '
+            : 'Complete scaling results are unavailable. '}
+          Server code: <code>{job.error_code ?? 'none'}</code>.
         </p>
       )}
       <p className="fine-print">
@@ -149,8 +151,8 @@ function InactiveExperiment({
       <div className="worker-activity">
         <h2>Worker Activity</h2>
         <p className="fine-print">
-          The complete 1/2/4/8-worker matrix runs locally. Individual worker
-          progress and live CPU usage are unavailable.
+          Benchmarks run locally. Individual worker progress and live CPU usage
+          are unavailable.
         </p>
       </div>
     </section>

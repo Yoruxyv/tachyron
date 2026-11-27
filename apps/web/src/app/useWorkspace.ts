@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDatasetImport } from '@/features/datasets/hooks/useDatasetImport';
-import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
+import { isTerminal, type Dataset } from '@/api/contracts';
 import { useNavigation } from '@/components/useNavigation';
 import { useCatalog } from '@/features/datasets/hooks/useCatalog';
 import { useHistory } from '@/features/history/hooks/useHistory';
@@ -58,11 +58,16 @@ function backToTop() {
 }
 
 export function useWorkspace() {
-  const { view, navigate } = useNavigation();
+  const { view, workerResults, comparisonId, navigate } = useNavigation();
   const catalog = useCatalog();
   const execution = useJob();
   const state = executionState(execution);
-  const history = useHistory(state.terminalId);
+  const history = useHistory(state.terminalId, comparisonId);
+
+  function selectComparison(id: string) {
+    history.select(id);
+    if (comparisonId) navigate('compare');
+  }
   const health = useApiHealth(
     Math.max(catalog.verifiedAt, history.verifiedAt, execution.verifiedAt),
   );
@@ -70,7 +75,7 @@ export function useWorkspace() {
   useEffect(() => {
     void checkHealth();
   }, [checkHealth]);
-  const [selected, setSelected] = useState<WorkerCount>(4);
+  const [selected, setSelected] = useState<number>(4);
   const [datasetId, setDatasetId] = useState('');
   const acceptImported = catalog.acceptImported;
   const imported = useCallback(
@@ -95,11 +100,13 @@ export function useWorkspace() {
 
   return {
     view,
+    workerResults,
+    comparisonId,
     navigate,
     catalog,
     importer,
     execution,
-    history,
+    history: { ...history, select: selectComparison },
     health,
     selected,
     selectWorker: setSelected,

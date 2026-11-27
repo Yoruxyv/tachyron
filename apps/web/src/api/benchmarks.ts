@@ -1,5 +1,6 @@
 import {
   array,
+  invalid,
   parseDataset,
   parseHistoryDetail,
   parseHistoryItem,
@@ -95,7 +96,11 @@ export const getHistory = (signal: AbortSignal, offset = 0) =>
 export const getDetail = (id: string, signal: AbortSignal) =>
   request(
     `/api/benchmarks/${encodeURIComponent(id)}`,
-    parseHistoryDetail,
+    (body) => {
+      const detail = parseHistoryDetail(body);
+      if (detail.job.id !== id) throw invalid();
+      return detail;
+    },
     signal,
   );
 
