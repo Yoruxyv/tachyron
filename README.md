@@ -93,8 +93,9 @@ fixed-worker [local execution workflow](docs/local-execution.md). Its operationa
 receipts account for failed, cancelled and unknown work. The separate
 [experimental, opt-in adaptive local workflow](docs/adaptive-execution.md) measures bounded samples and
 selects workers only with sufficient evidence; otherwise it uses an explicit fixed
-fallback. Calibration can cost more than it saves. Live worker monitoring remains
-deferred; browser upload limits are unchanged.
+fallback. Calibration can cost more than it saves. The [operational API](docs/operational-telemetry.md)
+admits registered datasets for manual and adaptive runs and exposes bounded
+worker telemetry.
 
 ## Reproducible benchmarks
 

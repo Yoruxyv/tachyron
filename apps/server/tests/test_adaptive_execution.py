@@ -21,6 +21,7 @@ from tachyron.execution import (
     run_adaptive,
     runner,
 )
+from tachyron.execution.live import LiveTelemetry, TrialScope
 from tachyron.execution.models import ExecutionResult
 from tachyron.execution.resources import Resources
 from tachyron.processing import (
@@ -32,6 +33,7 @@ from tachyron.processing import (
 from tachyron.processing.processor import process_image
 from tachyron.workers import operational
 from tachyron.workers.operational import PoolAccounting
+from tachyron.workers.telemetry import WorkerTelemetry
 from tests.benchmark_helpers import example_experiment, make_manifest
 from tests.test_adaptive_sampling import image_dataset
 from tests.test_calibration import observations
@@ -79,6 +81,7 @@ def controlled(monkeypatch: pytest.MonkeyPatch) -> Clock:
         *,
         cancelled: Callable[[], bool],
         on_outcome: Callable[[int, ImageOutcome], None],
+        telemetry: WorkerTelemetry | None = None,
     ) -> PoolAccounting:
         outcomes: list[ImageOutcome | None] = [None] * len(manifest.entries)
         for index, entry in enumerate(manifest.entries):
@@ -98,6 +101,9 @@ def controlled(monkeypatch: pytest.MonkeyPatch) -> Clock:
         config: TransformConfig,
         workers: int,
         cancelled: Callable[[], bool],
+        *,
+        live: LiveTelemetry | None = None,
+        trial: TrialScope | None = None,
     ) -> tuple[ExecutionResult, float, Telemetry]:
         with (
             pytest.raises(BenchmarkError, match="Another benchmark"),
@@ -105,7 +111,13 @@ def controlled(monkeypatch: pytest.MonkeyPatch) -> Clock:
         ):
             pytest.fail("The outer lock must cover every trial and final execution")
         result = runner._run_manifest(
-            manifest, directory, config, workers, cancelled=cancelled
+            manifest,
+            directory,
+            config,
+            workers,
+            cancelled=cancelled,
+            live=live,
+            trial=trial,
         )
         seconds = 0.2 + len(manifest.entries) * 0.05 / workers
         clock.now += seconds

@@ -5,6 +5,8 @@
 separate `local-execution-v1` contract. The separate
 [adaptive workflow](adaptive-execution.md) adds bounded worker calibration.
 Fixed-worker runs can opt into [worker telemetry](#worker-telemetry-stage-c1).
+The [operational API](operational-telemetry.md) supports manual and adaptive
+runs against registered datasets.
 
 ## Run and inspect
 
@@ -89,8 +91,9 @@ uv run --locked --project apps/server tachyron-execute inspect-telemetry E:/Resu
 ## Admission and filesystem boundaries
 
 The local operator authorizes the root by invoking the CLI/Python function with
-that path. This is a trusted local interface, with the operator's OS permissions;
-it adds no browser path parameter, HTTP endpoint or remote authorization policy.
+that path. This trusted local interface uses the operator's OS permissions.
+The [operational API](operational-telemetry.md) resolves registered dataset IDs
+server-side.
 
 | Limit                                |         Local execution maximum |
 | ------------------------------------ | ------------------------------: |
@@ -227,6 +230,5 @@ functional. The following boundaries guided that implementation:
 
 The adaptive workflow owns the cooperative lock across calibration and final
 execution, using the same internal manifest runner as `run_local` without nested
-acquisition. Browser use will require a separate operational job admission and
-access contract with a registered dataset identity, plus a bounded live delivery
-contract that can reconcile telemetry gaps against authoritative receipts.
+acquisition. The [operational API](operational-telemetry.md) admits registered
+datasets and offers bounded polling with receipt-backed reconciliation.

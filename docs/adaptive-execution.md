@@ -2,8 +2,9 @@
 
 **Experimental opt-in:** adaptive execution profiles an authorized image workload, measures bounded sample
 batches on the current machine and either selects a measured worker configuration
-or explicitly abstains. It then executes the full frozen workload once. This is a
-local CLI/Python workflow, with no dashboard, worker event stream or HTTP path input.
+or explicitly abstains. It then executes the full frozen workload once.
+The CLI and Python interface accept an operator-selected path. The
+[operational API](operational-telemetry.md) uses a registered dataset ID.
 
 ## Usage
 
@@ -250,7 +251,7 @@ not peak physical memory. Sampling cost is included, with no claim that its
 overhead has been independently eliminated or that its observations establish
 worker readiness, assignment or task-start events.
 
-## Compatibility and Stage C prerequisites
+## Compatibility and telemetry
 
 The producer writes `adaptive-calibration-v4`. Inspection also accepts historical
 `adaptive-calibration-v2` reports using the exact original method, five-field policy
@@ -264,7 +265,7 @@ The timing footer format remains unchanged because its publication boundary is u
 
 Scientific benchmark-v1 Context/digests, scheduling, warm-ups/repetitions, timing,
 statistics and JSON/CSV remain unchanged. Adaptive evidence is not importable as
-scientific benchmark evidence. Existing browser limits, API jobs, history and
+scientific benchmark evidence. Existing browser limits, benchmark API jobs, history and
 frontend behavior are unchanged. New Python sources change newly captured source
 hashes normally; historical records are not rewritten.
 
@@ -274,19 +275,9 @@ cross-device performance or let a result from one device predict another. Valida
 on the actual machine; Linux cgroup parsing has fixture coverage, not a claim of
 full platform or hardware validation from a Windows run.
 
-Stage C needs separate authorization. Its smallest reviewable slice must define:
-
-1. Stable execution/worker-instance identities beyond PID, confirmed lifecycle
-   observations and worker-side hooks for readiness/task start/result/exit.
-2. Explicit ordering and clock semantics, bounded retention, dropped-event counters
-   and authoritative snapshots for reconciliation. Keep submitted work distinct
-   from observed execution and never attribute a crash to a task solely in flight.
-3. Queue/resource ownership, cancellation, unexpected exit, partial initialization,
-   transport loss and backend restart semantics with failure-path tests.
-4. Instrumentation cost measured separately. New overhead can affect calibration,
-   requiring explicit adaptive policy/provenance treatment; do not contaminate
-   legacy scientific timing contracts or rewrite old evidence.
-
-Start with local observations and inspection. Any authenticated API transport is
-a separate contract decision; dashboard animation, reconnection UI, brokers and
-multi-node execution are not implemented in this stage.
+For a local run, add `--telemetry` to write `adaptive-telemetry.json`.
+The [C2 telemetry contract](operational-telemetry.md) describes trial identity,
+bounded retention, missing observations, and reconciliation with receipts.
+Instrumentation contributes to elapsed workflow time and can affect time-budget
+decisions. Compare telemetry modes under matching conditions before drawing
+performance conclusions.

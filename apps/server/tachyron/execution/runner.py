@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from tachyron.benchmarking.ownership import experiment_lock
 from tachyron.benchmarking.provenance import capture_environment
+from tachyron.execution.live import LiveTelemetry, TrialScope
 from tachyron.execution.models import (
     LOCAL_LIMITS,
     ExecutionResult,
@@ -159,6 +160,8 @@ def _run_manifest(
     *,
     cancelled: Callable[[], bool] | None = None,
     telemetry: bool = False,
+    live: LiveTelemetry | None = None,
+    trial: TrialScope | None = None,
 ) -> ExecutionResult:
     """Run a frozen manifest while the caller owns the cooperative workload lock."""
     _admit(manifest, output, config)
@@ -182,39 +185,78 @@ def _run_manifest(
         "environment": asdict(capture_environment()),
     }
     publish_bytes(directory, "admission.json", encode(admission))
+    if live is not None:
+        live.start_pool(
+            execution_id, manifest.sha256, workers, len(manifest.entries), trial
+        )
+    observer = _start_observations(execution_id, manifest, workers, telemetry, live)
+    terminal = None
+
+    def acknowledge(index: int, outcome: ImageOutcome) -> None:
+        publish_outcome(directory, execution_id, index, outcome)
+        if live is not None:
+            live.acknowledge(outcome)
+
+    try:
+        start = perf_counter()
+        accounting = run_accounted(
+            manifest,
+            directory,
+            config,
+            workers,
+            cancelled=cancelled or (lambda: False),
+            on_outcome=acknowledge,
+            **({} if observer is None else {"telemetry": observer}),
+        )
+        result = _result(
+            execution_id, manifest, workers, accounting, perf_counter() - start
+        )
+        publish_bytes(directory, "execution.json", encode(result.to_dict()))
+        terminal = result
+        if observer is not None:
+            _finish_observations(directory, observer, result, publish=telemetry)
+        return result
+    finally:
+        if live is not None:
+            live.finish_pool(terminal)
+
+
+def _start_observations(
+    execution_id: str,
+    manifest: DatasetManifest,
+    workers: int,
+    persist: bool,
+    live: LiveTelemetry | None,
+) -> WorkerTelemetry | None:
+    if not persist and live is None:
+        return None
     observer = None
-    if telemetry:
-        try:
-            observer = WorkerTelemetry(execution_id, manifest.sha256, workers)
-        except (ImportError, OSError, RuntimeError):
-            logger.warning("Optional worker telemetry could not be initialized")
-    start = perf_counter()
-    accounting = run_accounted(
-        manifest,
-        directory,
-        config,
-        workers,
-        cancelled=cancelled or (lambda: False),
-        on_outcome=lambda index, outcome: publish_outcome(
-            directory, execution_id, index, outcome
-        ),
-        **({} if observer is None else {"telemetry": observer}),
-    )
-    result = _result(
-        execution_id, manifest, workers, accounting, perf_counter() - start
-    )
-    publish_bytes(directory, "execution.json", encode(result.to_dict()))
-    if observer is not None:
-        _publish_telemetry(directory, observer, result)
-    return result
+    try:
+        observer = WorkerTelemetry(
+            execution_id,
+            manifest.sha256,
+            workers,
+            on_event=live.observe if live is not None else None,
+        )
+    except (ImportError, OSError, RuntimeError):
+        logger.warning("Optional worker telemetry could not be initialized")
+    if live is not None:
+        live.attach(observer.channel if observer is not None else None)
+    return observer
 
 
-def _publish_telemetry(
-    directory: Path, observer: WorkerTelemetry, result: ExecutionResult
+def _finish_observations(
+    directory: Path,
+    observer: WorkerTelemetry,
+    result: ExecutionResult,
+    *,
+    publish: bool,
 ) -> None:
     for index, item in enumerate(result.items):
         if item.state == "UNKNOWN":
             observer.task("task_unknown", index)
+    if not publish:
+        return
     snapshot = observer.terminal_snapshot(
         result.state,
         result.counts,

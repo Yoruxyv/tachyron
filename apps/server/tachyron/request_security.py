@@ -9,7 +9,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 class LocalRequests:
-    """Reject untrusted hosts and browser mutations before consuming request bodies."""
+    """Enforce local browser trust before dispatching protected requests."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -42,12 +42,10 @@ class LocalRequests:
         code = ""
         if host not in settings.allowed_hosts:
             code = "invalid_host"
-        elif request.method in {
-            "POST",
-            "PUT",
-            "PATCH",
-            "DELETE",
-        } and scope["path"].startswith("/api/"):
+        elif scope["path"].startswith("/api/") and (
+            request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            or scope["path"].startswith("/api/operations/")
+        ):
             origin = request.headers.get("origin")
             if (
                 request.headers.get("x-tachyron-request") != "1"

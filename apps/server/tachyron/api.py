@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from tachyron.imports.models import DatasetImportError
 from tachyron.imports.routes import router as import_router
 from tachyron.jobs.coordinator import AdmissionError, Coordinator
+from tachyron.jobs.operational_routes import router as operational_router
 from tachyron.jobs.routes import router
 from tachyron.processing import ProcessingError
 from tachyron.request_security import LocalRequests
@@ -98,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_api_route("/health", health, methods=["GET"])
     application.include_router(router)
     application.include_router(import_router)
+    application.include_router(operational_router)
     application.add_middleware(LocalRequests)
     application.add_exception_handler(DatasetImportError, import_error)
     application.add_exception_handler(AdmissionError, admission_error)
