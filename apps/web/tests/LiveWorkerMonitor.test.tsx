@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -15,6 +15,29 @@ import {
 } from './operation-fixtures';
 
 describe('live worker monitor presentation', () => {
+  it('copies the monitored identity and keeps it selectable if clipboard access fails', async () => {
+    const user = userEvent.setup();
+    const copy = vi
+      .spyOn(navigator.clipboard, 'writeText')
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new Error('Private browser detail'));
+    vi.spyOn(api, 'getOperation').mockResolvedValue(
+      api.parseOperation(operation(), runId, null),
+    );
+    render(<LiveWorkerMonitor acceptedRunId={runId} />);
+    expect(screen.getByLabelText('Operational run ID')).not.toBeVisible();
+    const button = screen.getByRole('button', { name: 'Copy run ID' });
+    await user.click(button);
+    expect(copy).toHaveBeenCalledWith(runId);
+    expect(screen.getByText('Run ID copied.')).toBeVisible();
+    await user.click(button);
+    expect(screen.getByText(/Clipboard unavailable/)).toBeVisible();
+    expect(
+      screen.queryByText('Private browser detail'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(runId)).toBeVisible();
+  });
+
   it('renders observed trial activity independently of final progress and uses honest readiness language', async () => {
     const snapshot = api.parseOperation(
       operation({
@@ -65,6 +88,7 @@ describe('live worker monitor presentation', () => {
     const user = userEvent.setup();
     render(<LiveWorkerMonitor />);
     expect(get).not.toHaveBeenCalled();
+    await user.click(screen.getByText('Attach existing run', { exact: true }));
     const input = screen.getByLabelText('Operational run ID');
     await user.type(input, 'invalid{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('UUID');
@@ -85,9 +109,8 @@ describe('live worker monitor presentation', () => {
       name: 'Recent execution events',
     });
     expect(within(events).getByText('Task submitted')).toBeVisible();
-    fireEvent.change(screen.getByLabelText('Show'), {
-      target: { value: 'workers' },
-    });
+    await user.click(screen.getByRole('combobox', { name: 'Show' }));
+    await user.click(screen.getByRole('option', { name: 'Worker lifecycle' }));
     expect(within(events).getByText('Worker readiness observed')).toBeVisible();
     expect(
       within(events).queryByText('Task submitted'),
@@ -155,6 +178,9 @@ describe('live worker monitor presentation', () => {
         });
       const user = userEvent.setup();
       render(<LiveWorkerMonitor />);
+      await user.click(
+        screen.getByText('Attach existing run', { exact: true }),
+      );
       const input = screen.getByLabelText('Operational run ID');
       await user.type(input, `${runId}{Enter}`);
       await screen.findByText(/browser-test/);

@@ -42,8 +42,16 @@
   line-height: 1.5;
 }
 
+.monitor-attach-options summary {
+  width: fit-content;
+  color: #cdd9e1;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .monitor-attach {
   display: grid;
+  margin-top: 10px;
   gap: 6px;
   align-items: start;
 }
@@ -73,7 +81,8 @@
 }
 
 .monitor-attach-actions button,
-.monitor-status button {
+.monitor-status button,
+.monitor-run-id button {
   min-height: 38px;
   padding: 7px 12px;
   color: #d8e1e9;
@@ -90,7 +99,8 @@
 }
 
 .monitor-attach-actions button:hover:not(:disabled),
-.monitor-status button:hover {
+.monitor-status button:hover,
+.monitor-run-id button:hover {
   border-color: #91c0c7;
 }
 
@@ -115,8 +125,18 @@
   overflow-wrap: anywhere;
 }
 
+.monitor-run-id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+}
+
+.monitor-run-id button {
+  min-height: 32px;
+}
+
 .monitor-run-id code {
-  margin-left: 4px;
   color: #cdd9e1;
   font: 11px var(--mono);
 }
@@ -355,13 +375,8 @@
   font-size: 11px;
 }
 
-.monitor-event-filter select {
-  min-height: 31px;
-  padding: 4px 8px;
-  color: #e1e8ed;
-  background: #1b2128;
-  border: 1px solid #4a5460;
-  border-radius: 5px;
+.monitor-event-filter .select {
+  width: min(100%, 185px);
 }
 
 .monitor-event-list {

@@ -1,5 +1,5 @@
+import { useState, type ReactNode } from 'react';
 import { isTerminal, type Dataset, type WorkerCount } from '@/api/contracts';
-import type { ReactNode } from 'react';
 import type { View } from '@/components/useNavigation';
 
 import ApiStatus from '@/features/diagnostics/ApiStatus';
@@ -13,6 +13,11 @@ import type { useJob } from '@/features/benchmarks/hooks/useJob';
 import type { useApiHealth } from '@/features/diagnostics/hooks/useApiHealth';
 
 import LiveWorkerMonitor from '@/features/operations/LiveWorkerMonitor';
+import {
+  OperationStatus,
+  type ExecutionMode,
+} from '@/features/operations/OperationControls';
+import { useOperationalExecution } from '@/features/operations/useOperationalExecution';
 
 interface Props {
   readonly importAction?: ReactNode;
@@ -55,12 +60,30 @@ export default function BenchmarkWorkspace({
   importAction,
   importing = false,
 }: Props) {
+  const operations = useOperationalExecution();
+  const [mode, setMode] = useState<ExecutionMode>(
+    operations.mode ?? 'benchmark',
+  );
+  const formMode = execution.pending || active ? 'benchmark' : mode;
   const form = (
     <JobForm
       datasets={datasets}
       datasetError={datasetError}
       retryDatasets={retryDatasets}
-      disabled={execution.busy || active || execution.coolingDown || importing}
+      disabled={
+        execution.busy ||
+        active ||
+        execution.coolingDown ||
+        importing ||
+        (view === 'experiments' && (operations.sending || operations.running))
+      }
+      {...(view === 'experiments' && {
+        controls: {
+          value: formMode,
+          select: setMode,
+          execution: operations,
+        },
+      })}
       importAction={view === 'experiments' ? importAction : undefined}
       pending={execution.pending?.request}
       submit={execution.submit}
@@ -111,22 +134,31 @@ export default function BenchmarkWorkspace({
     return (
       <div className="experiment-grid">
         <div className="stack">{form}</div>
-        <JobProgress
-          job={execution.job}
-          busy={execution.busy}
-          cancel={execution.cancel}
-          verified={jobVerified}
-          recovering={execution.recovering}
-          pending={Boolean(execution.pending)}
-          error={execution.error}
-          retryStatus={
-            execution.recovering ||
-            (execution.job && !isTerminal(execution.job.state))
-              ? execution.resume
-              : undefined
-          }
+        {formMode !== 'benchmark' ? (
+          <OperationStatus execution={operations} />
+        ) : (
+          <JobProgress
+            job={execution.job}
+            busy={execution.busy}
+            cancel={execution.cancel}
+            verified={jobVerified}
+            recovering={execution.recovering}
+            pending={Boolean(execution.pending)}
+            error={execution.error}
+            retryStatus={
+              execution.recovering ||
+              (execution.job && !isTerminal(execution.job.state))
+                ? execution.resume
+                : undefined
+            }
+          />
+        )}
+        <LiveWorkerMonitor
+          key={operations.runId}
+          acceptedRunId={operations.runId}
+          locked={operations.running}
+          onState={operations.observe}
         />
-        <LiveWorkerMonitor />
       </div>
     );
 

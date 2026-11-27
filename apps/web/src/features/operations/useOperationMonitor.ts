@@ -5,7 +5,10 @@ import {
   getOperation,
   isOperationTerminal,
   type OperationSnapshot,
+  type OperationState,
 } from '@/api/operations';
+
+export type OperationalState = OperationState | 'CANCELLING' | 'UNAVAILABLE';
 
 const pollInterval = 800;
 const staleAfter = 5000;
@@ -47,7 +50,10 @@ function unavailableMessage(error: unknown) {
 }
 
 /** Own a single sequential polling session. The caller keys it by run ID. */
-export function useOperationMonitor(runId: string) {
+export function useOperationMonitor(
+  runId: string,
+  onState?: (id: string, state: OperationalState) => void,
+) {
   const [view, setView] = useState<MonitorView>({
     snapshot: null,
     connection: 'connecting',
@@ -97,6 +103,10 @@ export function useOperationMonitor(runId: string) {
         animateAfter,
       });
       failures = 0;
+      onState?.(
+        runId,
+        !terminal && snapshot.cancel_requested ? 'CANCELLING' : snapshot.state,
+      );
       if (terminal) return;
       staleTimer = setTimeout(
         () =>
@@ -111,6 +121,8 @@ export function useOperationMonitor(runId: string) {
     function failed(error: unknown) {
       const message = unavailableMessage(error);
       if (message) {
+        if (error instanceof ApiError && error.status === 404)
+          onState?.(runId, 'UNAVAILABLE');
         setView({
           snapshot: verified.current,
           connection: 'unavailable',
@@ -150,7 +162,7 @@ export function useOperationMonitor(runId: string) {
       clearTimeout(pollTimer);
       clearTimeout(staleTimer);
     };
-  }, [runId, retry]);
+  }, [runId, retry, onState]);
 
   return { ...view, retry: () => setRetry((value) => value + 1) };
 }

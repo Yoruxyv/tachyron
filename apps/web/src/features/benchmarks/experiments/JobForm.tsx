@@ -7,6 +7,12 @@ import {
   type WorkerCount,
 } from '@/api/contracts';
 import Select from '@/components/Select';
+import {
+  ManualWorkers,
+  ModeField,
+  type ExecutionMode,
+} from '@/features/operations/OperationControls';
+import type { useOperationalExecution } from '@/features/operations/useOperationalExecution';
 
 import DatasetSelect from '@/features/datasets/components/DatasetSelect';
 import WorkerSelector from '../results/WorkerSelector';
@@ -24,8 +30,40 @@ const defaults: Omit<RunRequest, 'dataset_id'> = {
 const dimensions = { minimum: 1, maximum: 4096 };
 const repetitionsRange = { minimum: 5, tinyMinimum: 1, maximum: 20 };
 
+interface ModeControls {
+  readonly value: ExecutionMode;
+  readonly select: (mode: ExecutionMode) => void;
+  readonly execution: ReturnType<typeof useOperationalExecution>;
+}
+
+function validDimension(value: number) {
+  return (
+    Number.isInteger(value) &&
+    value >= dimensions.minimum &&
+    value <= dimensions.maximum
+  );
+}
+
+function validRepetitions(request: RunRequest) {
+  const minimum = request.tiny
+    ? repetitionsRange.tinyMinimum
+    : repetitionsRange.minimum;
+  return (
+    Number.isInteger(request.repetitions) &&
+    request.repetitions >= minimum &&
+    request.repetitions <= repetitionsRange.maximum
+  );
+}
+
+function submitLabel(mode: ExecutionMode, pending: RunRequest | undefined) {
+  if (mode === 'manual') return 'Start manual run';
+  if (mode === 'adaptive') return 'Start adaptive run';
+  return pending ? 'Retry same submission' : '▷ Run experiment';
+}
+
 interface Props {
   readonly importAction?: ReactNode;
+  readonly controls?: ModeControls;
   readonly datasets: Dataset[];
   readonly disabled: boolean;
   readonly pending: RunRequest | undefined;
@@ -51,8 +89,15 @@ export default function JobForm({
   datasetError = '',
   retryDatasets,
   importAction,
+  controls,
 }: Props) {
   const id = useId();
+  const mode = controls?.value ?? 'benchmark';
+  const benchmark = mode === 'benchmark';
+  const operation = controls?.execution;
+  const blocked = !benchmark && operation?.uncertain;
+  const fieldsDisabled = disabled || Boolean(pending);
+  const [workerCount, setWorkerCount] = useState<WorkerCount>(1);
   const [width, setWidth] = useState(String(defaults.width));
   const [height, setHeight] = useState(String(defaults.height));
   const [repetitions, setRepetitions] = useState(String(defaults.repetitions));
@@ -62,7 +107,7 @@ export default function JobForm({
   const selected = pending?.dataset_id ?? datasetId;
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (disabled) return;
+    if (disabled || blocked) return;
     const request: RunRequest = pending ?? {
       ...defaults,
       dataset_id: selected,
@@ -74,28 +119,33 @@ export default function JobForm({
     const dataset = datasets.find(
       (item) => item.dataset_id === request.dataset_id,
     );
-    const validDimension = (value: number) =>
-      Number.isInteger(value) &&
-      value >= dimensions.minimum &&
-      value <= dimensions.maximum;
     if (
       !pending &&
       (dataset?.error_code !== null ||
         !dataset.input_count ||
         !validDimension(request.width) ||
         !validDimension(request.height) ||
-        !Number.isInteger(request.repetitions) ||
-        request.repetitions <
-          (tiny ? repetitionsRange.tinyMinimum : repetitionsRange.minimum) ||
-        request.repetitions > repetitionsRange.maximum)
+        (benchmark && !validRepetitions(request)))
     ) {
       setError(
-        `Choose an available dataset, dimensions from ${dimensions.minimum} to ${dimensions.maximum}, and ${repetitionsRange.minimum}–${repetitionsRange.maximum} measured repetitions (${repetitionsRange.tinyMinimum}–${repetitionsRange.maximum} for a tiny functional test).`,
+        benchmark
+          ? `Choose an available dataset, dimensions from ${dimensions.minimum} to ${dimensions.maximum}, and ${repetitionsRange.minimum}–${repetitionsRange.maximum} measured repetitions (${repetitionsRange.tinyMinimum}–${repetitionsRange.maximum} for a tiny functional test).`
+          : 'Choose an available dataset and dimensions from 1 to 4096 pixels.',
       );
       setSettingsOpen(true);
       return;
     }
     setError('');
+    if (mode !== 'benchmark' && operation) {
+      const { dataset_id, width: outputWidth, height: outputHeight } = request;
+      const input = { dataset_id, width: outputWidth, height: outputHeight };
+      void operation.start(
+        mode === 'manual'
+          ? { ...input, mode, workers: workerCount }
+          : { ...input, mode },
+      );
+      return;
+    }
     submit(request).catch(() =>
       setError('Unable to submit. Retry with the same configuration.'),
     );
@@ -110,7 +160,11 @@ export default function JobForm({
           <h2 id={`${id}-title`}>
             {compact ? 'Quick experiment' : 'Experiment Configuration'}
           </h2>
-          <p>Configure a measured benchmark run</p>
+          <p>
+            {benchmark
+              ? 'Configure a measured benchmark run'
+              : 'Process a registered dataset once'}
+          </p>
         </div>
         <svg
           viewBox="0 0 24 24"
@@ -125,7 +179,18 @@ export default function JobForm({
         </svg>
       </div>
       <form onSubmit={handleSubmit} noValidate>
-        <fieldset disabled={disabled || Boolean(pending)}>
+        <fieldset disabled={fieldsDisabled}>
+          {controls && (
+            <ModeField
+              id={`${id}-mode`}
+              mode={mode}
+              disabled={fieldsDisabled}
+              select={(value) => {
+                setError('');
+                controls.select(value);
+              }}
+            />
+          )}
           <div className="form-field">
             <label htmlFor={`${id}-operation`}>Processing operation</label>
             <Select
@@ -155,17 +220,25 @@ export default function JobForm({
               <WorkerSelector value={selectedWorker} onChange={selectWorker} />
             )}
           </div>
+          {mode === 'manual' && (
+            <ManualWorkers
+              id={`${id}-workers`}
+              count={workerCount}
+              disabled={fieldsDisabled}
+              select={setWorkerCount}
+            />
+          )}
           <details
             className="benchmark-settings"
             open={settingsOpen}
             onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
           >
             <summary>
-              Benchmark settings{' '}
+              {benchmark ? 'Benchmark settings' : 'Output settings'}{' '}
               <span className="mono">
-                {pending?.width ?? width} × {pending?.height ?? height} ·{' '}
-                {pending?.repetitions ?? repetitions} runs
-                {(pending?.tiny ?? tiny) && ' · tiny test'}
+                {pending?.width ?? width} × {pending?.height ?? height}
+                {benchmark && ` · ${pending?.repetitions ?? repetitions} runs`}
+                {benchmark && (pending?.tiny ?? tiny) && ' · tiny test'}
               </span>
             </summary>
             <div className="settings-content">
@@ -193,29 +266,33 @@ export default function JobForm({
                   />
                 </label>
               </div>
-              <label>
-                <span>Measured repetitions per worker</span>
-                <input
-                  type="number"
-                  min={
-                    tiny
-                      ? repetitionsRange.tinyMinimum
-                      : repetitionsRange.minimum
-                  }
-                  max={repetitionsRange.maximum}
-                  required
-                  value={pending?.repetitions ?? repetitions}
-                  onChange={(event) => setRepetitions(event.target.value)}
-                />
-              </label>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={pending?.tiny ?? tiny}
-                  onChange={(event) => setTiny(event.target.checked)}
-                />
-                <span>Tiny functional test (not performance evidence)</span>
-              </label>
+              {benchmark && (
+                <>
+                  <label>
+                    <span>Measured repetitions per worker</span>
+                    <input
+                      type="number"
+                      min={
+                        tiny
+                          ? repetitionsRange.tinyMinimum
+                          : repetitionsRange.minimum
+                      }
+                      max={repetitionsRange.maximum}
+                      required
+                      value={pending?.repetitions ?? repetitions}
+                      onChange={(event) => setRepetitions(event.target.value)}
+                    />
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={pending?.tiny ?? tiny}
+                      onChange={(event) => setTiny(event.target.checked)}
+                    />
+                    <span>Tiny functional test (not performance evidence)</span>
+                  </label>
+                </>
+              )}
             </div>
           </details>
         </fieldset>
@@ -227,10 +304,19 @@ export default function JobForm({
             </button>
           </p>
         )}
-        <p className={compact ? 'matrix-label sr-only' : 'matrix-label'}>
-          Execution matrix{' '}
-          <span className="mono">{workers.join(' · ')} workers</span>
-        </p>
+        {benchmark && (
+          <p className={compact ? 'matrix-label sr-only' : 'matrix-label'}>
+            Execution matrix{' '}
+            <span className="mono">{workers.join(' · ')} workers</span>
+          </p>
+        )}
+        {mode === 'adaptive' && (
+          <p className="fine-print">
+            Experimental adaptive mode spends time calibrating before
+            processing. It may fall back to a safe worker count. Faster
+            execution is not guaranteed.
+          </p>
+        )}
         {error && (
           <p role="alert" className="error">
             {error}
@@ -239,15 +325,17 @@ export default function JobForm({
         <button
           type="submit"
           className="primary run-button"
-          disabled={disabled || (!selected && !pending)}
+          disabled={disabled || blocked || (!selected && !pending)}
         >
-          {pending ? 'Retry same submission' : '▷ Run experiment'}
+          {submitLabel(mode, pending)}
         </button>
-        <p className="fine-print">
-          {compact
-            ? `Measured locally · full ${workers.join('/')}-worker matrix.`
-            : `One warm-up, then measured repetitions per configuration. Resize + grayscale uses Lanczos. Seed ${pending?.seed ?? defaults.seed} · sample interval ${pending?.sampling_interval ?? defaults.sampling_interval} s. All four configurations run on this machine.`}
-        </p>
+        {benchmark && (
+          <p className="fine-print">
+            {compact
+              ? `Measured locally · full ${workers.join('/')}-worker matrix.`
+              : `One warm-up, then measured repetitions per configuration. Resize + grayscale uses Lanczos. Seed ${pending?.seed ?? defaults.seed} · sample interval ${pending?.sampling_interval ?? defaults.sampling_interval} s. All four configurations run on this machine.`}
+          </p>
+        )}
       </form>
     </section>
   );

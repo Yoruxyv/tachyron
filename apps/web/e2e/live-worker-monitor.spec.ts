@@ -45,6 +45,8 @@ async function read(request: APIRequestContext, path: string) {
 async function attach(page: Page, path: string) {
   const monitor = page.getByRole('region', { name: 'Live Worker Monitor' });
   const id = monitor.getByLabel('Operational run ID');
+  if (!(await id.isVisible()))
+    await monitor.getByText('Attach existing run', { exact: true }).click();
   await id.fill(path.slice(path.lastIndexOf('/') + 1));
   await id.press('Enter');
   return monitor;
