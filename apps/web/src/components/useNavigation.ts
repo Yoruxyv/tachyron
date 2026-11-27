@@ -16,7 +16,7 @@ export const views: {
   {
     id: 'experiments',
     title: 'Experiments',
-    subtitle: 'Configure a workload and run a worker benchmark',
+    subtitle: 'Configure a benchmark or process a dataset',
     label: 'Experiments',
   },
   {

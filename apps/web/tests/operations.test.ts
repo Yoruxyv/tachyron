@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getOperation, parseOperation } from '@/api/operations';
+import {
+  cancelOperation,
+  getOperation,
+  parseOperation,
+  startOperation,
+} from '@/api/operations';
 
 import {
   observation,
@@ -8,6 +13,54 @@ import {
   otherRunId,
   runId,
 } from './operation-fixtures';
+
+describe('C2 dashboard writes', () => {
+  const input = {
+    dataset_id: 'browser-test',
+    width: 16,
+    height: 12,
+    mode: 'manual',
+    workers: 2,
+  } as const;
+
+  it('treats an inconsistent admission response as unverified', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        Response.json(operation({ requested_workers: 4 }), { status: 202 }),
+      );
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      startOperation(input, new AbortController().signal),
+    ).rejects.toMatchObject({ status: 0 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires server evidence of cancellation or a terminal outcome', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json(operation(), { status: 202 }))
+      .mockResolvedValueOnce(
+        Response.json(operation({ cancel_requested: true }), { status: 202 }),
+      );
+    vi.stubGlobal('fetch', fetch);
+    const signal = new AbortController().signal;
+    await expect(cancelOperation(runId, signal)).rejects.toMatchObject({
+      status: 0,
+    });
+    await expect(cancelOperation(runId, signal)).resolves.toMatchObject({
+      cancel_requested: true,
+      state: 'RUNNING',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/operations/${runId}/cancel`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { Accept: 'application/json', 'X-Tachyron-Request': '1' },
+      }),
+    );
+  });
+});
 
 describe('C2 snapshot decoding', () => {
   it('sends cursor-scoped reads with request security and a cancellation signal', async () => {

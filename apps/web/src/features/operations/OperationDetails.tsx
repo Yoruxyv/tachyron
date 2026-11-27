@@ -7,6 +7,7 @@ import {
   type OperationSnapshot,
 } from '@/api/operations';
 import Icon from '@/components/Icon';
+import Select from '@/components/Select';
 
 const eventLabels: Readonly<Partial<Record<string, string>>> = {
   operation_queued: 'Run queued',
@@ -296,19 +297,22 @@ function RecentEvents({ snapshot }: { readonly snapshot: OperationSnapshot }) {
         <h3 id="monitor-events-heading">Recent observations</h3>
         <span>Sequence #{snapshot.snapshot_sequence}</span>
       </div>
-      <label className="monitor-event-filter">
-        <span>Show</span>
-        <select
+      <div className="monitor-event-filter">
+        <label htmlFor="monitor-event-filter">Show</label>
+        <Select
+          id="monitor-event-filter"
+          label="Show"
           value={filter}
-          onChange={(event) => setFilter(event.target.value)}
-        >
-          <option value="all">All observations</option>
-          <option value="workers">Worker lifecycle</option>
-          {snapshot.mode === 'adaptive' && (
-            <option value="calibration">Calibration</option>
-          )}
-        </select>
-      </label>
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: 'All observations' },
+            { value: 'workers', label: 'Worker lifecycle' },
+            ...(snapshot.mode === 'adaptive'
+              ? [{ value: 'calibration', label: 'Calibration' }]
+              : []),
+          ]}
+        />
+      </div>
       {events.length ? (
         <ol className="monitor-event-list" aria-label="Recent execution events">
           {events.map((event) => (

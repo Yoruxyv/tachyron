@@ -107,10 +107,24 @@ An abbreviated running manual response:
 
 ## Live Worker Monitor
 
-In **Experiments**, paste an existing operational run ID into the **Live Worker
-Monitor** and choose **Attach**. The monitor reads the secured snapshot endpoint
-with the last verified sequence. Use **Detach** to stop watching. Starting and
-cancelling operational runs remain explicit API or CLI actions.
+In **Experiments**, choose **Benchmark**, **Manual**, or **Adaptive**.
+Benchmark keeps the full 1/2/4/8-worker comparison. Manual processes one
+registered dataset with a fixed worker count. Adaptive calibrates before final
+processing, so it adds overhead and can fall back to one worker. It can take
+longer than a fixed run.
+
+Starting a manual or adaptive operation automatically attaches the **Live Worker
+Monitor** when the server returns an accepted run ID. The current tab remembers
+the ID across navigation and reloads. Use **Cancel operation** in the monitor to
+request a cooperative stop. Dispatched work can finish before the run settles.
+Use **Copy run ID** to share the monitored ID. Open **Attach existing run** to follow an operation started elsewhere if
+you already have its ID.
+
+If a submission loses its response, the dashboard pauses further operational
+submissions. The operation may already be running. Check the server, attach if
+you have the run ID, and explicitly choose **Allow a new submission** before
+starting another operation. Admission remains subject to the existing server
+resource and workload limits.
 
 The monitor polls about every 800 ms while a run is active and keeps one request
 in flight. It marks delayed or failed reads as stale and retries transient

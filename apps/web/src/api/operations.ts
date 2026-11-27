@@ -1,5 +1,5 @@
 import { request } from './benchmarks';
-import { workers } from './contracts';
+import { workers, type WorkerCount } from './contracts';
 import {
   array,
   boolean,
@@ -186,6 +186,20 @@ function eventWindowFrom(data: Record<string, unknown>, after: number | null) {
   };
 }
 
+export type OperationMode = 'manual' | 'adaptive';
+
+interface OperationInput {
+  readonly dataset_id: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+export type OperationRequest = OperationInput &
+  (
+    | { readonly mode: 'manual'; readonly workers: WorkerCount }
+    | { readonly mode: 'adaptive' }
+  );
+
 /** Decode the consumed C2 fields and verify the server's window against this request. */
 export function parseOperation(
   value: unknown,
@@ -224,11 +238,50 @@ export function parseOperation(
 }
 
 export type OperationSnapshot = ReturnType<typeof parseOperation>;
+export type OperationState = OperationSnapshot['state'];
 export type OperationEvent = ReturnType<typeof event>;
 export type OperationProgress = ReturnType<typeof progress>;
 
 export const isOperationTerminal = (state: OperationSnapshot['state']) =>
   state !== 'QUEUED' && state !== 'RUNNING';
+
+/** Admit one operation. A missing acceptance response leaves admission uncertain. */
+export function startOperation(body: OperationRequest, signal: AbortSignal) {
+  return request(
+    '/api/operations',
+    (value) => {
+      const snapshot = parseOperation(value, id(object(value).run_id), null);
+      if (
+        snapshot.dataset_id !== body.dataset_id ||
+        snapshot.mode !== body.mode
+      )
+        throw invalid();
+      if (body.mode === 'manual' && snapshot.requested_workers !== body.workers)
+        throw invalid();
+      return snapshot;
+    },
+    signal,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function cancelOperation(runId: string, signal: AbortSignal) {
+  return request(
+    `/api/operations/${encodeURIComponent(runId)}/cancel`,
+    (body) => {
+      const snapshot = parseOperation(body, runId, null);
+      if (!snapshot.cancel_requested && !isOperationTerminal(snapshot.state))
+        throw invalid();
+      return snapshot;
+    },
+    signal,
+    { method: 'POST' },
+  );
+}
 
 export function getOperation(
   runId: string,
