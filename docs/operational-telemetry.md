@@ -1,8 +1,8 @@
-# Operational jobs and live telemetry (Stage C2)
+# Operational jobs and live telemetry
 
 The local API admits explicit image-processing runs against dataset IDs from
-[`GET /api/datasets`](dashboard.md). Use `manual` for a fixed worker cap or
-`adaptive` to opt into Stage B's experimental calibrated selection and fallback.
+[`GET /api/datasets`](api.md#http-contract). Use `manual` for a fixed worker cap or
+`adaptive` to use experimental calibration with an explicit fallback.
 The work uses the registered manifest and its resource limits. Scientific
 benchmark jobs continue to use `/api/jobs` and `/api/benchmarks`.
 
@@ -23,16 +23,23 @@ or behind the configured trusted local proxy. Run IDs scope events and lookup.
 
 Send a strict JSON body with `dataset_id`, `mode`, optional `width` and
 `height` (each 1–4096, default 256), and `workers` for manual mode. Workers must
-be 1, 2, 4, or 8. For adaptive mode, omit `workers` to use the Stage B default
-policy. The server derives the output namespace and executes the existing
-grayscale PNG transform.
+be 1, 2, 4, or 8. For adaptive mode, omit `workers`. The server derives the
+output namespace and writes grayscale PNGs. [Default adaptive policy](adaptive-execution.md)
+
+The example assumes the `example` dataset is registered. [Register a dataset](api.md#configure-and-run)
 
 ```powershell
 $headers = @{ 'X-Tachyron-Request' = '1' }
 $api = 'http://127.0.0.1:8000'
-$body = @{ dataset_id = 'tiny'; mode = 'manual'; workers = 2; width = 64; height = 64 } | ConvertTo-Json
+$body = @{ dataset_id = 'example'; mode = 'manual'; workers = 2; width = 64; height = 64 } | ConvertTo-Json
 $run = Invoke-RestMethod -Method Post -Uri "$api/api/operations" -Headers $headers -ContentType 'application/json' -Body $body
 $view = Invoke-RestMethod -Uri "$api/api/operations/$($run.run_id)?after=$($run.snapshot_sequence)" -Headers $headers
+```
+
+To request cancellation while an operation is active:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "$api/api/operations/$($run.run_id)/cancel" -Headers $headers
 ```
 
 A concurrent operation, queued or running benchmark, or import reservation
@@ -108,8 +115,8 @@ An abbreviated running manual response:
 ## Live Worker Monitor
 
 In **Experiments**, choose **Benchmark**, **Manual**, or **Adaptive**.
-Benchmark keeps the full 1/2/4/8-worker comparison. Manual processes one
-registered dataset with a fixed worker count. Adaptive calibrates before final
+Benchmark defaults to the 1/2/4/8 comparison and supports bounded custom counts.
+Manual processes one registered dataset with a fixed worker count. Adaptive calibrates before final
 processing, so it adds overhead and can fall back to one worker. It can take
 longer than a fixed run.
 
@@ -140,17 +147,15 @@ separate from final processing. Worker transitions animate only on fresh,
 continuous observations, and respect reduced-motion settings. Use the poll
 coverage details to distinguish event-window eviction from worker transport gaps.
 
-The browser integration tests admit generated datasets through the real API.
-They use deliberate delays to make cancellation and reconnection reproducible and
-inject a real child process exit in the test server. The captures show the UI
-alongside actual spawned-run evidence. All inputs and workloads are synthetic.
-
-## Local evidence
+## Inspect persisted receipts
 
 Live snapshots are process-lifetime data. After eviction or a server restart,
 operator-owned receipts under the configured data directory remain inspectable
 with `tachyron-execute inspect` or `inspect-adaptive`. The server stores operational
 results in `operations/<run_id>`. The local operator controls disk retention.
+To investigate missing or failed work, inspect the run directory for Manual mode,
+or the adaptive report and its `execution/` directory for Adaptive mode.
+[Receipt outcomes](local-execution.md#outcomes-and-interruption)
 
 For a local adaptive run, opt in with
 `tachyron-execute adaptive <dataset> --output <new-directory> --telemetry`.
@@ -158,4 +163,4 @@ The versioned `adaptive-telemetry.json` contains the terminal bounded view and
 shares its run ID with the adaptive receipt's calibration ID. The existing
 adaptive report and timing receipt retain their original measurement boundaries.
 Fixed-worker `run --telemetry` and `inspect-telemetry` retain their
-[Stage C1 artifact contract](local-execution.md#worker-telemetry-stage-c1).
+[local artifact contract](local-execution.md#worker-telemetry).

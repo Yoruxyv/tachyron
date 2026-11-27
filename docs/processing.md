@@ -147,10 +147,11 @@ the decode call; this synchronous implementation is not a thread-isolation bound
 Use local directories controlled by the invoking user. Path-component checks,
 no-follow/non-blocking open flags where available, descriptor identity checks,
 bounded reads, and content hashes detect unsafe links and observed input edits.
-There is no portable guarantee against a hostile process concurrently renaming
-ancestor directories or changing filesystem permissions. A future service must
-register and isolate its datasets/output roots; this local CLI is not an upload
-sandbox. No network access or subprocess execution occurs in processing.
+Filesystem protections assume a trusted local operator. A hostile process with
+access to the same directories can still rename ancestors or change permissions.
+Use the [local API's registered dataset boundary](api.md#local-request-boundary)
+for browser or native HTTP clients. The processing module performs local image
+and filesystem work.
 
 ## Python usage and module ownership
 
@@ -172,6 +173,6 @@ assert result.succeeded + result.failed == len(manifest.entries)
 
 No processing module imports FastAPI or persistence. Process-pool ownership is
 implemented separately in [parallel workers](workers.md), using the same image
-callable and shared run boundaries. Worker comparisons, timing, telemetry,
-experiment statistics, persistence, HTTP jobs, and dashboard workflows remain
-deferred. The existing liveness route is unchanged.
+callable and shared run boundaries. Higher-level callers add
+[benchmark scheduling and measurements](benchmarking.md) or
+[operational execution and receipts](local-execution.md).

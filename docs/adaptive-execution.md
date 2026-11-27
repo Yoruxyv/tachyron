@@ -1,4 +1,4 @@
-# Adaptive local execution (Stage B)
+# Adaptive image execution
 
 **Experimental opt-in:** adaptive execution profiles an authorized image workload, measures bounded sample
 batches on the current machine and either selects a measured worker configuration
@@ -8,12 +8,13 @@ The CLI and Python interface accept an operator-selected path. The
 
 ## Usage
 
-From the repository root, with a dataset and a new output directory:
+Run from the repository root. Use an existing dataset and an unused output
+location whose parent already exists. [Create an example dataset](processing.md#reproducible-example)
 
 ```powershell
 uv sync --locked --project apps/server
-uv run --locked --project apps/server tachyron-execute adaptive E:/Images/batch --output E:/Results/adaptive-1
-uv run --locked --project apps/server tachyron-execute inspect-adaptive E:/Results/adaptive-1
+uv run --locked --project apps/server tachyron-execute adaptive datasets/example --output results/adaptive-1
+uv run --locked --project apps/server tachyron-execute inspect-adaptive results/adaptive-1
 ```
 
 Defaults are 256x256 grayscale PNG, 32 sample files, three repetitions per sample
@@ -33,14 +34,14 @@ from tachyron.processing import TransformConfig
 
 if __name__ == "__main__":
     result = run_adaptive(
-        Path("E:/Images/batch"),
-        Path("E:/Results/adaptive-1"),
+        Path("datasets/example"),
+        Path("results/adaptive-1"),
         TransformConfig(256, 256),
         policy=CalibrationPolicy(),
     )
     print(result.calibration.selection)
     print(result.total_seconds)
-    persisted = inspect_adaptive(Path("E:/Results/adaptive-1"))
+    persisted = inspect_adaptive(Path("results/adaptive-1"))
 ```
 
 The Python API also accepts the existing local limits, narrowed only, and a
@@ -56,8 +57,8 @@ The effective trial-image budget is `min(budget_images, input_count // 2)`.
 A complete candidate block costs `repetitions * (sample_files + sample_files // 2)`
 image executions. If two complete blocks do not fit, bypass header profiling and
 trials, report `INCONCLUSIVE` with `calibration_work_budget_bypass`, and execute
-once with the explicit feasible fallback. Default calibration therefore bypasses
-96- and 384-image batches. This is a cost policy, not evidence that one worker is
+once with the explicit feasible fallback. With the default sample sizes and repetitions, this budget allows two complete
+blocks from 576 inputs upward. Smaller eligible datasets bypass the trials. This is a cost policy, not evidence that one worker is
 fastest. A fixed larger policy may still be substantially faster.
 
 For eligible workloads, test the fallback first, then other feasible counts in
@@ -88,7 +89,7 @@ allows one full execution with the best supported policy or the safe fallback.
 
 A bypass uses the input policy's worst-case pixel bound for memory feasibility.
 This can conservatively reject an expensive fallback whose actual images would
-fit. It does not skip Stage A input validation or grant more resource capacity.
+fit. The full run still applies local input validation and resource limits.
 
 ## Sampling and bounded measurements
 
@@ -171,12 +172,10 @@ candidate's model. Min/max repetitions produce conservative observed-range slope
 and projected-time bounds. These bounds are **not statistical confidence intervals**.
 Truncated/unavailable monitoring invalidates a complete configuration. Incomplete
 configurations cannot provide estimates; a valid completed fallback and alternative
-can still support a remaining-execution choice after a budget stop. Noise and
-gain thresholds are unchanged from v2.
+can still support a remaining-execution choice after a budget stop.
 
-The model projects Stage A setup/receipt costs from trials; future adaptive-report
-and timing-footer publication cost is not forecast. Actual workflow totals include
-both publications.
+The model projects fixed-worker setup and receipt costs from trial measurements.
+The actual workflow total also includes writing the adaptive report and timing footer.
 
 The objective is the smallest projected total completion time among supported fits:
 observed setup plus calibration cost plus projected full execution. Selection
@@ -211,12 +210,12 @@ manifest runner for callers already owning that lock; public `run_local` retains
 its original locking, output and timing contract. There is no nested acquisition
 or unlocked gap between calibration and final work.
 
-The new output directory contains:
+A new adaptive output directory contains the following files.
 
 - `adaptive-admission.json`: `adaptive-calibration-v4`, UUID, complete frozen
   manifest, transform, local limits, policy and self-described methodology.
-- `trial-000/`, etc.: immutable Stage A execution evidence for each sample run.
-- `execution/`: one full-workload Stage A execution and its exact accounting.
+- `trial-000/`, etc.: immutable local execution evidence for each sample run.
+- `execution/`: one full-workload execution and its exact accounting.
 - `adaptive.json`: profiles/categories, selected sample metadata, all measured
   trials, feasibility/resource observations, estimates, selection and execution ID.
 - `timing.json`: hash of the primary report and duration through its publication.
@@ -239,7 +238,7 @@ counts/state links, model-based selections, full manifest identity and timing ha
 Missing primary/timing publication stays `UNCONFIRMED`; malformed evidence fails
 closed. An interrupted trial's known earlier measurements are retained, with an
 explicit `unconfirmed_trial` basename for any uncertain attempt. Inspect its
-Stage A directory separately where admission exists. No file-existence heuristic
+trial directory separately where admission exists. No file-existence heuristic
 establishes a started task or successful image. An unconfirmed shutdown is not
 automatically retried. There is no resume, exactly-once or power-loss guarantee.
 
@@ -263,11 +262,13 @@ trials or rewrite archived measurements. Versions 3/4 have an explicit work budg
 phase costs and stop evidence; their six-field policy includes `max_trial_images`.
 The timing footer format remains unchanged because its publication boundary is unchanged.
 
-Scientific benchmark-v1 Context/digests, scheduling, warm-ups/repetitions, timing,
-statistics and JSON/CSV remain unchanged. Adaptive evidence is not importable as
-scientific benchmark evidence. Existing browser limits, benchmark API jobs, history and
-frontend behavior are unchanged. New Python sources change newly captured source
-hashes normally; historical records are not rewritten.
+Adaptive receipts describe operational trials and the final run. Scientific
+benchmarks have their own schedules, timing and exports.
+[Benchmark evidence](benchmarking.md)
+
+Pass `--telemetry` to retain the bounded terminal view. For registered datasets,
+use the operational API's adaptive mode or the dashboard's **Adaptive** control.
+[Adaptive telemetry and polling](operational-telemetry.md)
 
 The same versioned calibration procedure applies on different machines, while
 resource feasibility and measured choices can differ. This does not establish

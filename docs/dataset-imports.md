@@ -2,8 +2,9 @@
 
 Experiments can import original image files into private, application-managed
 storage. Environment-registered datasets continue to use the existing startup
-discovery and job contracts. Neither route changes benchmark transformations,
-manifest hashing, repetitions, timing boundaries or the fixed 1/2/4/8-worker plan.
+discovery and job contracts. Once registered, a dataset can be used for an
+operational run or a measured comparison. Each workflow applies its own
+schedule and measurement policy. [Local API workflows](api.md)
 
 ## Browser workflow
 
@@ -64,44 +65,14 @@ the hook; no window message listener forwards data to it and no port is shared
 with another window. Loading that script in another Worker creates a separate
 instance. The [HTML Worker specification](https://html.spec.whatwg.org/multipage/workers.html#dedicated-workers-and-the-dedicatedworkerglobalscope-interface)
 defines a private channel between the creating Worker object and its global scope.
+Dedicated worker messages use that channel. Their Origin and source fields use
+the [MessageEvent defaults](https://html.spec.whatwg.org/multipage/comms.html#messageevent).
 
-CodeQL alert 1, `js/missing-origin-check`, flags `self.onmessage` in that worker.
-The inspected CodeQL 2.27.3 analysis reports medium severity and no SARIF
-`codeFlows` path. The [rule](https://codeql.github.com/codeql-query-help/javascript/js-missing-origin-check/)
-targets unchecked message origins; its
-[handler model](https://github.com/github/codeql/blob/main/javascript/ql/lib/semmle/javascript/security/dataflow/DOM.qll)
-also matches global `onmessage` assignments without excluding this dedicated-worker
-context. This identifies an absent origin/source comparison, not a demonstrated
-cross-origin path to upload initiation.
-
-Worker messages use the [MessagePort delivery algorithm](https://html.spec.whatwg.org/multipage/web-messaging.html#message-port-post-message-steps),
-which initializes data and ports, leaving the
-[MessageEvent defaults](https://html.spec.whatwg.org/multipage/comms.html#messageevent)
-for origin (`""`) and source (`null`). Comparing origin with the page's origin
-would reject valid worker messages; accepting an empty origin would not authenticate
-the sender. The private Worker channel supplies the relevant capability boundary.
-
-The hook creates the worker only after reviewed file counts, byte limits and
-exclusions pass confirmation. It checks generation and reply object/field types,
-bounds UTF-8 metadata size, and sends the original selected File objects. The worker
-hashes bytes and serializes metadata; it does not evaluate code, modify the DOM or
-initiate uploads. Input TypeScript declarations are not runtime validation. The
-server remains authoritative for metadata shape, exact digests, paths, image
-acceptance and resource limits. Compromised same-origin application code is outside
-this message-boundary claim and already has access to the local API.
-
-The real browser import test delivers forged completion messages from an iframe
-with a different origin and keeps that sender active through preparation. It
-asserts no early or extra POST, successful registration through the actual worker,
-and native worker event origin/source values. Cancellation and stale-worker replies
-retain their existing generation checks and regressions.
-
-The review recommendation is to classify this particular alert as a false positive
-after maintainer verification of those assumptions. It remains open for that manual
-decision. This change adds no cosmetic origin check, alert dismissal, inline
-suppression or CodeQL policy exception. Reassess if preparation ever accepts a
-window message, shared worker connection, externally supplied script URL or shared
-MessagePort.
+The hook starts preparation after review and confirmation. It checks the reply
+generation and shape, bounds metadata in UTF-8 bytes, and sends the selected
+File objects. The worker hashes and describes files. The page owns the upload.
+The API independently validates metadata, digests, paths, image bytes and resource
+limits. Preserve this private channel if changing worker creation or messaging.
 
 ## Protocol
 

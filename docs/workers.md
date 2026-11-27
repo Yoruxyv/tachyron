@@ -123,7 +123,7 @@ task can have been dispatched by a management thread which never started.
 
 This recovery necessarily reads `_processes` and `_executor_manager_thread`, and
 clears the latter only when it never started. These are private CPython fields,
-with matching lifecycles verified on 3.11.15 and 3.13.9. A layout check runs before
+whose behavior is exercised by real-process tests. A layout check runs before
 submission; an unknown layout fails visibly before starting children. Matching
 field names alone cannot establish compatibility with a changed implementation:
 runtime upgrades still require the real-process regressions. This is a narrow
@@ -156,8 +156,8 @@ service.
 These behaviors follow Python's [executor shutdown contract](https://docs.python.org/3.11/library/concurrent.futures.html#concurrent.futures.Executor.shutdown)
 and [spawn guidance](https://docs.python.org/3.11/library/multiprocessing.html#the-spawn-and-forkserver-start-methods).
 The startup gap is visible in CPython's
-[3.11.15 executor implementation](https://github.com/python/cpython/blob/v3.11.15/Lib/concurrent/futures/process.py)
-and [3.13.9 executor implementation](https://github.com/python/cpython/blob/v3.13.9/Lib/concurrent/futures/process.py).
+[3.11.15 executor implementation](https://raw.githubusercontent.com/python/cpython/v3.11.15/Lib/concurrent/futures/process.py)
+and [3.13.9 executor implementation](https://raw.githubusercontent.com/python/cpython/v3.13.9/Lib/concurrent/futures/process.py).
 
 ## Validation and boundaries
 
@@ -170,9 +170,8 @@ verify recovery with sequential byte parity. Another probe delivers SIGINT in th
 registration gap and verifies that the started manager drains its worker normally.
 Private fault hooks are test-only and locate the failure deterministically;
 subprocess timeouts, test-worker watchdogs, and explicit fallback cleanup bound
-failed probes. The existing Ubuntu/Windows ×
-Python 3.11/3.13 CI matrix runs ordinary tests and the spawn group in separate
-steps, once each. Controlled futures test out-of-order completion and exact queue
+failed probes. CI runs ordinary and spawn tests in separate steps on Ubuntu and Windows
+across Python 3.11–3.14. Controlled futures test out-of-order completion and exact queue
 bounds without sleeps or scheduling assumptions. Tests make no speedup assertions.
 
 ```powershell
@@ -182,6 +181,7 @@ uv run --locked --project apps/server pytest apps/server/tests/test_workers.py -
 
 Pillow operations and filesystem safety remain in `processing/`. Pool lifecycle
 and bounded aggregation live in `workers/`. CLI parsing/reporting remains in
-`cli.py`. All run without FastAPI or SQLite. Benchmark statistics, repeated runs,
-CPU/RAM sampling, background HTTP jobs, persistence, charts, Docker, and multi-host
-execution remain deferred.
+`cli.py`. These layers run without FastAPI or SQLite. Use
+[benchmarking](benchmarking.md) for repeated comparisons and process-tree samples.
+Use [operational execution](local-execution.md) for receipt-backed work or the
+[local API](operational-telemetry.md) to observe workers over HTTP.
