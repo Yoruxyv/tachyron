@@ -1,25 +1,26 @@
-# Local image execution (Stage A)
+# Local image execution
 
 `tachyron-execute` processes one explicitly selected local dataset with a fixed
 1/2/4/8-process spawn pool. It supports admission of up to 10,000 files through a
 separate `local-execution-v1` contract. The separate
 [adaptive workflow](adaptive-execution.md) adds bounded worker calibration.
-Fixed-worker runs can opt into [worker telemetry](#worker-telemetry-stage-c1).
+Fixed-worker runs can opt into [worker telemetry](#worker-telemetry).
 The [operational API](operational-telemetry.md) supports manual and adaptive
 runs against registered datasets.
 
 ## Run and inspect
 
-From the repository root, after installing the locked Python project:
+From the repository root, choose an existing PNG/JPEG dataset and an existing
+output parent. The [processing example](processing.md#reproducible-example)
+shows how to create both.
 
 ```powershell
 uv sync --locked --project apps/server
-uv run --locked --project apps/server tachyron-execute run E:/Images/batch --output E:/Results/batch-1 --workers 4
-uv run --locked --project apps/server tachyron-execute inspect E:/Results/batch-1
+uv run --locked --project apps/server tachyron-execute run datasets/example --output results/batch-1 --workers 4
+uv run --locked --project apps/server tachyron-execute inspect results/batch-1
 ```
 
-Choose an existing dataset and a **new** output directory whose parent exists.
-The default output is 256 by 256 grayscale PNG; `--width` and `--height` retain the
+Choose a fresh output directory. The default output is 256 by 256 grayscale PNG; `--width` and `--height` retain the
 existing transform contract. Output directories are never reused or overwritten.
 Console JSON contains counts, identity, duration and state; individual outcomes
 are in `execution.json`. Exit codes are 0 for completed, 1 for failed/unconfirmed,
@@ -35,12 +36,12 @@ from tachyron.processing import TransformConfig
 
 if __name__ == "__main__":
     result = run_local(
-        Path("E:/Images/batch"),
-        Path("E:/Results/batch-1"),
+        Path("datasets/example"),
+        Path("results/batch-1"),
         TransformConfig(256, 256),
         workers=4,
     )
-    assert inspect_execution(Path("E:/Results/batch-1")) == result
+    assert inspect_execution(Path("results/batch-1")) == result
 ```
 
 `run_local` accepts an optional `cancelled` callback and a narrowed `ResourceLimits`
@@ -48,7 +49,7 @@ policy. Every limit must be no larger than `LOCAL_LIMITS`; arbitrary pool sizes
 and expanded policies are rejected. Run it from the main thread when relying on
 Ctrl+C handling. There is no background service or automatic resumption.
 
-## Worker telemetry (Stage C1)
+## Worker telemetry
 
 `--telemetry` writes one versioned `telemetry.json` alongside the terminal receipt.
 Use `inspect-telemetry` to validate the artifact against the receipt and print it
@@ -57,8 +58,8 @@ invalid artifact returns exit code 2 with a diagnostic. The run still uses the
 execution receipt to determine its exit status if optional telemetry fails.
 
 ```powershell
-uv run --locked --project apps/server tachyron-execute run E:/Images/batch --output E:/Results/traced --workers 4 --telemetry
-uv run --locked --project apps/server tachyron-execute inspect-telemetry E:/Results/traced
+uv run --locked --project apps/server tachyron-execute run datasets/example --output results/traced --workers 4 --telemetry
+uv run --locked --project apps/server tachyron-execute inspect-telemetry results/traced
 ```
 
 - The snapshot identifies the execution and manifest and includes final receipt
@@ -129,9 +130,9 @@ Disk admission requires observed free space of twice the requested output pixel
 count plus 64 MiB. This is conservative headroom, **not a reservation or a hard
 encoded-byte quota**. The queue is bounded, while manifest/outcome bookkeeping
 grows with admitted file count. Pixel limits bound each decode, but multiple
-Pillow buffers and workers can still exhaust memory. Stage A observes available
-memory in provenance; it does not automatically reduce workers or enforce an OS
-memory limit. Runtime disk exhaustion produces explicit image/receipt failures.
+Pillow buffers and workers can still exhaust memory. The run records available
+memory in provenance and uses the requested worker cap. Runtime disk exhaustion
+produces explicit image or receipt failures.
 
 The existing cooperative experiment lock covers admission, execution and terminal
 publication. Other cooperating local executions, scientific experiments and import
@@ -168,6 +169,11 @@ admission, during final publication or an unconfirmed shutdown may leave no
 terminal receipt. A second process can inspect retained evidence, but cannot
 conclude from missing terminal evidence that the owner has stopped running.
 
+Forceful termination of the controller can leave its workers running, as
+observed on Windows. Verify that the processes belonging to the interrupted
+run have exited before cleaning its output directory. Use the retained receipts
+to distinguish acknowledged results from unknown outcomes.
+
 ## Receipt ownership and compatibility
 
 The new output directory owns immutable files published without replacement:
@@ -200,35 +206,8 @@ provenance/admission publication and final receipt serialization. Measure the
 whole `run_local` call separately for end-to-end operational cost. These durations
 are not scientific benchmark samples and cannot be imported as benchmark-v1.
 
-No benchmark Context, timing boundary, schedule, digest, statistics, JSON/CSV,
-history schema, job/API contract, import policy or frontend state is changed.
-Old scientific records retain their meaning. Newly captured source provenance
-normally changes when new Python modules are added.
-
-## Stage B prerequisites and smallest scope
-
-Stage B now implements these prerequisites through the separate
-[adaptive execution contract](adaptive-execution.md). The fixed-N interface remains
-functional. The following boundaries guided that implementation:
-
-1. Define a versioned calibration/selection receipt referencing the full input
-   manifest and config. Keep sample outputs and execution directories separate.
-   Record total workflow time including discovery, calibration and final execution.
-2. Specify deterministic sample selection and bounded inspection of format,
-   dimensions and compressed size. Use a declared seed/digest and stratification;
-   avoid selecting only the first files. Revalidate content identity before use.
-3. Declare budgets for sample count/pixels/bytes, repetitions, candidate trials,
-   elapsed time and observed memory/disk headroom. CPU count, affinity and memory
-   provenance already exist; CPU quotas need an explicitly unavailable value when
-   they cannot be reliably observed. Define feasible candidates from 1/2/4/8.
-4. Choose an objective based on estimated **total** completion time, including
-   calibration and startup costs. Define variability, inconclusive evidence,
-   cancellation and explicit fixed-N fallback; preserve failed measurements.
-5. Validate selection on representative holdout and adversarial workloads, including
-   heterogeneous images, tiny batches, noisy trials and a slower adaptive result.
-   Generated repeated fixtures prove mechanics only, not an optimal worker policy.
-
-The adaptive workflow owns the cooperative lock across calibration and final
-execution, using the same internal manifest runner as `run_local` without nested
-acquisition. The [operational API](operational-telemetry.md) admits registered
-datasets and offers bounded polling with receipt-backed reconciliation.
+For measured comparisons, use the [benchmark workflow](benchmarking.md). For
+automatic worker selection, use [adaptive execution](adaptive-execution.md).
+Adaptive execution holds the cooperative lock across calibration and final work.
+The [operational API](operational-telemetry.md) accepts registered dataset IDs
+and offers bounded polling with receipt-backed reconciliation.

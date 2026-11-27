@@ -231,68 +231,20 @@ schedule accounting, unavailable/churning process observations, failure exports,
 output ownership and compatibility rejection. No hardware performance threshold
 is a passing criterion.
 
-## Actual tiny workload example
+## Interpret a saved comparison
 
-The following is **real measured test data**, not representative performance
-evidence. On 2026-10-26 at 15:23 UTC, an installed wheel processed nine generated
-96×64 images (eight PNGs, one JPEG), resizing to 32×32. Each configuration ran one
-warm-up and five measured repetitions with seed 2026 and 0.02-second sampling.
-The host reported Windows 10, AMD64 Family 25 Model 80, eight physical/sixteen
-logical CPUs, and 32,157 MiB RAM. Runtime: Python 3.11.15, Pillow 13.0.0,
-psutil 7.2.2. FastAPI and pytest were absent from this installation.
+Open `workers.json` or the dashboard's **View all worker results** page to
+compare mean batch wall time, throughput, resource observations and spread.
+Check the context ID and raw runs in `runs.json` before comparing with
+a different experiment. Use one saved context for each scaling curve.
 
-Experiment ID: `d5aea4ff-6181-4740-87f9-52fdb0371476`.
-Loaded source SHA-256:
-`76955bda717c60f80728a47cd69f5a2293569f87783c2f4943c8935c3c1b7980`.
-Git commit is unavailable for this installed wheel, as intended. The source hash
-was verified against the working package and built wheel.
+The [processing example](processing.md#reproducible-example) provides a tiny
+generated dataset. Run the `--tiny` and `compare` commands above to exercise
+export and re-comparison without treating the timings as representative.
+Inspect the `tiny` flag and confirm the actual schedule, run count and
+measurement availability in the exported records. For a real workload,
+use all measured repetitions, preserve the complete raw data, and report
+the dataset, output configuration, measurement policy and environment.
 
-| Workers | Mean seconds | Sample stddev seconds | Mean images/s | Speedup | Efficiency % | Observed CPU core % | Peak tree RSS MiB |
-| ------- | ------------ | --------------------- | ------------- | ------- | ------------ | ------------------- | ----------------- |
-| 1       | 0.4915       | 0.0119                | 18.3217       | 1.0000  | 100.00       | 113.42              | 92.29             |
-| 2       | 0.4945       | 0.0298                | 18.2496       | 0.9938  | 49.69        | 204.64              | 136.88            |
-| 4       | 0.5296       | 0.0186                | 17.0124       | 0.9280  | 23.20        | 375.49              | 213.79            |
-| 8       | 0.7101       | 0.0308                | 12.6937       | 0.6921  | 8.65         | 689.99              | 283.44            |
-
-All 24 batches completed nine images without failure; the four warm-ups are
-excluded from this table. CPU and RSS observations were available in all five
-measured repetitions per configuration. These are observed resource values, not
-normalization to host capacity or exact physical-memory occupancy. Pool startup
-is substantial for this tiny input; the table establishes working measurements
-and formulas, not a general scaling result.
-
-Raw excerpt from the first measured repetition:
-
-```json
-{
-  "step": {
-    "run_id": "d995cc90-f96e-5b9b-a34a-cbdb0219ccbe",
-    "workers": 1,
-    "warmup": false,
-    "repetition": 1,
-    "order": 4
-  },
-  "elapsed_seconds": 0.5008642000029795,
-  "succeeded": 9,
-  "failed": 0,
-  "status": "success"
-}
-```
-
-Full raw JSON/CSV and summaries were written under the ignored local directory
-`.cache/benchmark-example-final/experiment/`. Re-comparison reproduced the summaries,
-all four export hashes matched the final manifest, and independent calculations
-from the raw durations reproduced the means, sample deviations, throughput,
-speedup and efficiency. The installed sequential and two-worker processing CLI
-also produced byte-identical PNGs for this dataset. Generated images/results are
-not repository fixtures or published representative benchmarks.
-
-Benchmark timing/statistics live in `tachyron/benchmarking/`, and the focused
-`tachyron-benchmark run` / `compare` CLI adapts that core. Existing processing and
-worker modules remain independent. HTTP jobs, persistence, charts, distributed
-execution and hard native-task cancellation remain deferred.
-
-The existing [worker resource policy](workers.md#scheduling-and-resource-policy)
-still applies: decode/transform memory can multiply with active workers. Available
-RAM is provenance, not an exact admission quota. Use modest workloads and resource
-limits for the host; no automatic reduction of the requested worker count occurs.
+For end-to-end time including discovery and optional calibration, time a
+single operational run separately. [Local receipts](local-execution.md#receipt-ownership-and-compatibility)

@@ -1,10 +1,14 @@
-# Jobs and persistent history
+# Local HTTP API and benchmark history
 
-FastAPI exposes the existing benchmark experiment. The
-[dashboard](dashboard.md) consumes these contracts. Each job runs the complete **1/2/4/8-worker
-comparison**, using the same `run_experiment`, image transformations, timing,
-provenance and statistics as `tachyron-benchmark run`. This preserves the merged
-core instead of introducing the older blueprint's separate single-worker API.
+The local API serves three workflows over registered datasets. Use
+`/api/jobs` and `/api/benchmarks` for measured comparisons and durable benchmark
+history, `/api/operations` for a single manual or adaptive execution with live
+telemetry, and `/api/dataset-imports` for local folder registration.
+[Operational API](operational-telemetry.md) · [Dataset imports](dataset-imports.md)
+
+Benchmark jobs use the same transform, scheduling, timing, and statistics as
+`tachyron-benchmark run`. The default matrix is 1/2/4/8. Explicit bounded custom
+comparisons use the same measurement procedure. [Benchmark methodology](benchmarking.md)
 
 ## Configure and run
 
@@ -17,13 +21,16 @@ Embedded applications can import `Settings` from `tachyron.settings` and pass it
 to `create_app(Settings(...))`. The previous `tachyron.jobs.coordinator.Settings`
 import remains compatible. Settings owns operator configuration; benchmark defaults
 remain in `benchmarking.models`, and processing/import policies remain in their
-respective domains. See the [configuration audit](ssot-configuration-audit.md).
+respective domains. Keep defaults beside their owning domain, validate request
+data at the server boundary, and treat browser bounds as user guidance. Equal
+values in different policies can serve different purposes, such as a receive
+inactivity deadline and a request's response timeout.
 
 ```powershell
-uv sync --locked --project apps/server --extra api
+uv sync --locked --project apps/server --no-dev --extra api
 $env:TACHYRON_DATASETS = '{"example":"datasets/example"}'
 $env:TACHYRON_DATA_DIR = 'results/api'
-uv run --locked --project apps/server uvicorn tachyron.api:app --host 127.0.0.1 --port 8000
+uv run --locked --project apps/server --no-dev --extra api uvicorn tachyron.api:app --host 127.0.0.1 --port 8000
 ```
 
 The default history directory is `results/api`; an unset dataset registry is
@@ -33,9 +40,9 @@ entry and depth limits. Discovery returns manifest hash, file count and compress
 bytes; unavailable roots have `dataset_unavailable` and null metadata. Discovery
 does not claim that all files decode successfully. Existing per-image safeguards
 and hash revalidation still apply during execution. Restart to refresh manifests.
-Output storage and registered datasets must not overlap. No roots are returned
-over HTTP. Keep the app on loopback: this local MVP has no accounts or authentication,
-and it does not enable CORS. Network hosting requires a separate security design.
+Output storage and registered datasets must be disjoint. Clients receive dataset
+IDs and metadata. Keep the API on loopback. It trusts the local operator's OS
+account and offers neither account authentication nor cross-origin sharing.
 
 Interactive schemas are served at `/docs`, with machine-readable OpenAPI at
 `/openapi.json`. The typed request forbids extra fields and coerced integer/boolean
@@ -51,23 +58,23 @@ Invoke-RestMethod "http://127.0.0.1:8000/api/jobs/$($job.id)/metrics"
 The last request returns `409` until the job completes successfully. A tiny test
 is not representative performance evidence. Omit `tiny` and `repetitions` for
 the normal one warm-up plus five measured repetitions per configuration.
+The API defaults to five measured repetitions even with `tiny: true`. The CLI's
+`--tiny` option defaults to one measured repetition when `--repetitions` is omitted.
 
 ## Local request boundary
 
-This release intentionally changes compatibility for **all state-changing API
-routes**, including existing job submission and cancellation. Send
-`X-Tachyron-Request: 1`. Native local scripts may omit Origin and Fetch Metadata;
-they still need that header and a permitted loopback Host. Existing GET contracts
-are unchanged. The PowerShell example above includes the required header.
+Send `X-Tachyron-Request: 1` on state-changing API requests and on operational
+snapshot reads. Native local scripts may omit Origin and Fetch Metadata.
+They still need a permitted Host and the header on protected routes.
 
 Requests accept Host names `127.0.0.1`, `localhost`, and `[::1]`, with valid optional
-ports. A browser mutation also needs an exact allowed Origin if Origin is present
+ports. Protected browser requests need an exact allowed Origin if Origin is present
 and must not declare `Sec-Fetch-Site: cross-site`. Defaults are
 `http://127.0.0.1:5173`, `http://localhost:5173`,
 `http://127.0.0.1:8000`, `http://127.0.0.1:4173`, and
 `http://127.0.0.1:4174`. Programmatic Settings can explicitly configure allowed
 hosts/origins for a trusted local deployment. Unlisted origins, malformed hosts,
-missing mutation headers and cross-site requests return sanitized `403` responses
+missing protected-route headers and cross-site requests return sanitized `403` responses
 before consuming a body. No permissive CORS response is enabled. Interactive
 OpenAPI mutations also require the header, for example through its documented
 request contract or a native client.
@@ -208,22 +215,14 @@ restart. Retained files are not deleted implicitly. An abrupt OS/process kill ca
 leave child/native work briefly alive; stop it or let it finish before collecting
 another controlled benchmark. Graceful reload/shutdown is the supported cleanup path.
 
-## Decisions and validation
+## Integrating another client
 
-- **IMPLEMENT:** bounded local coordination, typed contracts, durable acceptance,
-  idempotent retries, cooperative cancellation, versioned SQLite history and safe
-  crash recovery.
-- **KEEP:** existing processing validation, fixed comparison matrix, pool ownership,
-  CLI behavior, metrics, exports and frontend. Optional core hooks run outside timing.
-- **DEFER:** individual worker-selection jobs, dataset refresh while running,
-  authentication/network deployment, cross-history aggregation, hard termination,
-  retention deletion and any UI work.
-- **REJECT:** Redis/Celery, generic scheduler/storage adapters, silent migration resets,
-  arbitrary client filesystem paths, incomplete success metrics and quality-policy changes.
+Poll a benchmark using its returned job ID. Reuse the same idempotency key and
+normalized body when reconciling a lost acceptance response. A new key starts
+a separate attempt. Poll an operation using the returned run ID and snapshot
+sequence. Operational snapshots are bounded and expire. Inspect persisted
+operational receipts after eviction or restart.
+[Polling and cancellation](operational-telemetry.md)
 
-Tests use real tiny images for API/core agreement, repeated polling under a blocked
-batch, saturation, retries, cancellation, failures, persistence, migrations, startup
-cleanup and shutdown cancellation. Separate marked integration tests use actual
-1/2/4/8 spawn pools and an abrupt subprocess-owner crash. Existing CI already runs
-all backend tests on Linux/Windows and Python 3.11–3.14.
-See the [quality guide](quality.md#local-commands) for validation commands.
+For backend and integration checks, use the
+[contributor quality guide](quality.md#local-commands).

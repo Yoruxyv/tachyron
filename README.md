@@ -1,186 +1,121 @@
 # Tachyron
 
-Reproducible parallel image-processing benchmarks on a single machine.
+Tachyron processes PNG and JPEG folders on one machine and helps you measure how
+different process-pool sizes affect the same workload. Use the CLI for local
+batches, the API to automate runs on registered datasets, or the dashboard
+to launch work, watch observed worker activity, and compare saved measurements.
 
-The Python package provides deterministic sequential and spawn-process batch
-image processing through a minimal CLI. The React dashboard configures real jobs,
-shows batch progress, and compares persisted measurements. The benchmark CLI measures real pool scaling
-and exports raw runs, sampled CPU/RSS, and comparison statistics. The API accepts
-bounded background experiments and retains SQLite history. Six charts and an
-accessible results table explain time, image throughput, CPU, RSS, speedup and efficiency.
+## Choose a workflow
 
-## Requirements
+| Goal                                                       | Workflow                                                   | What it produces                                                                                                                                       |
+| ---------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Convert a folder with straightforward per-image reporting  | `tachyron-process`                                         | Grayscale PNGs and a batch report. Runs sequentially by default.                                                                                       |
+| Finish a local batch with a known worker count             | **Manual** in Experiments or `tachyron-execute run`        | One execution with per-image receipts. The local CLI accepts up to 10,000 files, subject to resource limits.                                           |
+| Let the current workload inform worker choice              | **Adaptive** in Experiments or `tachyron-execute adaptive` | A bounded experimental calibration followed by one full run when feasible. Insufficient evidence leads to an explicit fallback. Calibration adds time. |
+| Compare worker counts under the same measurement procedure | **Benchmark** in Experiments or `tachyron-benchmark run`   | Repeated measurements, sampled CPU and memory, and portable evidence. The default matrix is 1/2/4/8.                                                   |
 
-- Standard CPython 3.11-3.14; CI covers each version on Linux and Windows.
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.11.32.
-- Node.js 24.18.0 (`.node-version`) and npm 11.6.4 for the web application only.
+## Install and run locally
 
-Dependencies are locked in `apps/server/uv.lock` and `apps/web/package-lock.json`.
-Use `uv sync --locked` and `npm ci`; updating locks is a deliberate maintenance task.
+Use standard CPython 3.11–3.14 and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+Continuous integration tests these Python versions on Linux and Windows.
+The dashboard also uses Node.js 24.18.0 and npm 11.6.4.
 
-## Run locally
-
-From the repository root in PowerShell (the same commands work in POSIX shells):
+Run a CLI-only installation from the repository root:
 
 ```powershell
-uv sync --locked --project apps/server --extra dev
-uv run --locked --project apps/server uvicorn tachyron.api:app --host 127.0.0.1 --port 8000
+uv sync --locked --project apps/server --no-dev
+uv run --locked --project apps/server --no-dev tachyron-execute --help
 ```
 
-In a second terminal at the repository root:
+The base Python package includes Pillow and psutil. For the dashboard or
+HTTP integration, start the optional API:
+
+```powershell
+uv run --locked --project apps/server --no-dev --extra api uvicorn tachyron.api:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal:
 
 ```powershell
 npm --prefix apps/web ci
 npm --prefix apps/web run dev
 ```
 
-Open [the application](http://127.0.0.1:5173). In Experiments, use **Import folder**
-to review and confirm an image workload, or use environment registration as
-described in [dashboard setup and tooling](docs/dashboard.md). Imported originals
-and registrations persist separately from benchmark history; see
-[dataset imports](docs/dataset-imports.md) for the API and storage contract.
-**API Tests → Check connection** checks process liveness.
-[GET /health](http://127.0.0.1:8000/health) returns `{"status":"ok"}`.
-This reports process liveness only; it says nothing about processing readiness.
+Open [Tachyron](http://127.0.0.1:5173) and choose **Experiments → Import folder**
+to review and confirm a dataset. Alternatively, before starting the API, register
+dataset IDs in the server environment. [Dashboard setup](docs/dashboard.md#run-locally)
 
-Both development servers bind to loopback. Vite proxies `/api` and `/health` to the local
-API, so no permissive CORS policy or browser environment secrets are needed.
-JSON API requests time out after ten seconds (five for liveness); folder uploads
-use separate receive/validation budgets. Failures show safe messages and recovery
-actions. Mutating API scripts must send `X-Tachyron-Request: 1`.
-Stop either server with Ctrl+C.
+Keep the API on loopback. It trusts the operator's OS account and has no
+account authentication. Vite proxies `/api` and `/health` to the local API.
+For native API calls, send `X-Tachyron-Request: 1` on mutations and
+operational polling. [Local request rules and API examples](docs/api.md)
 
-For an API-only environment, install `--extra api` instead of `--extra dev`.
-The base Python package depends on Pillow and psutil and runs without FastAPI.
-Its wheel and source distribution need no Node.js or frontend build artifacts.
-The Python metadata remains `>=3.11`; newer versions are not yet verified, and
-free-threaded builds are outside the supported compatibility matrix.
+## Process a large local batch
 
-See [jobs and history](docs/api.md) to register datasets, submit and cancel queued
-experiments, poll real metrics, and inspect persistent history and OpenAPI schemas.
-
-## Process images
-
-From the repository root, choose a PNG/JPEG dataset and a **new** output directory
-whose parent already exists:
+The command below assumes `datasets/example` and the `results` parent already
+exist. Choose a new output directory outside the input dataset. The
+[generated processing example](docs/processing.md#reproducible-example) creates
+a small input if you want to try the workflow first.
 
 ```powershell
-uv run --locked --project apps/server tachyron-process datasets/example --output results/example-1 --width 256 --height 256
+uv run --locked --project apps/server tachyron-execute run datasets/example --output results/example-fixed4 --workers 4 --telemetry
+uv run --locked --project apps/server tachyron-execute inspect results/example-fixed4
+uv run --locked --project apps/server tachyron-execute inspect-telemetry results/example-fixed4
 ```
 
-Each image is oriented, composited onto white, resized with Lanczos, and converted
-to grayscale PNG. A stable manifest and `run.json` preserve input identities,
-output mappings, and real success/failure counts. Existing results are never
-replaced. Exit codes are 0 for success, 1 for per-image failures, 2 for setup,
-execution, or report errors, and 130 for interruption. There are no benchmark timings.
+The transform applies EXIF orientation, composites transparency onto white,
+resizes with Lanczos, and writes grayscale PNG. Operations account for
+succeeded, failed, unknown, and unstarted inputs. An interrupted output
+folder may contain acknowledged successes and unconfirmed work. Inspect
+the receipts before deciding whether to start a fresh execution.
+[Limits, exit codes, and recovery](docs/local-execution.md)
 
-The command above remains sequential. Explicitly select a process pool with
-`--workers 1`, `--workers 2`, `--workers 4`, or `--workers 8`:
+The 10,000-file limit applies to the operator-local execution path. Browser
+registration and benchmark admission have separate limits.
+[Dataset import limits](docs/dataset-imports.md#limits-and-image-acceptance)
 
-```powershell
-uv run --locked --project apps/server tachyron-process datasets/example --output results/parallel-2 --width 256 --height 256 --workers 2
-```
+## Compare and monitor
 
-See [parallel workers](docs/workers.md) for bounded scheduling, spawn compatibility,
-failure/shutdown semantics, and the limits of cancellation. Worker counts are
-explicit experimental inputs; selecting more than reported logical CPUs warns.
-
-See [sequential processing](docs/processing.md) for a generated tiny dataset,
-the exact image contract, safety limits, and Python usage.
-
-For an explicitly selected local workload of up to 10,000 files, use the separate
-fixed-worker [local execution workflow](docs/local-execution.md). Its operational
-receipts account for failed, cancelled and unknown work. The separate
-[experimental, opt-in adaptive local workflow](docs/adaptive-execution.md) measures bounded samples and
-selects workers only with sufficient evidence; otherwise it uses an explicit fixed
-fallback. Calibration can cost more than it saves. The [operational API](docs/operational-telemetry.md)
-admits registered datasets for manual and adaptive runs and exposes bounded
-worker telemetry.
-
-## Reproducible benchmarks
-
-Use the generated dataset and existing `results/` parent from the processing
-example. A fresh experiment directory is required:
+Run a benchmark on a dataset and an existing output parent:
 
 ```powershell
-uv run --locked --project apps/server tachyron-benchmark run datasets/example --output results/benchmark --width 4 --height 3
+uv run --locked --project apps/server tachyron-benchmark run datasets/example --output results/benchmark
 uv run --locked --project apps/server tachyron-benchmark compare results/benchmark/runs.json --output results/recomputed
 ```
 
-The primary comparison uses 1/2/4/8 spawn workers, one warm-up and five measured
-repetitions per configuration, seeded interleaved order, and consistent batch
-timing including pool startup/shutdown and image I/O. JSON/CSV preserve raw runs
-and summaries. Failed experiments never become complete scaling comparisons.
-Use `--tiny` explicitly for a labeled one-repetition test; a tiny workload is not
-representative performance evidence. Experiments and the benchmark CLI also accept
-bounded custom worker comparisons. Open **View all worker results** from Overview
-or Compare to inspect every measured configuration. See [benchmark methodology](docs/benchmarking.md)
-for worker-count limits, timing, baseline, CPU/RSS semantics, provenance, storage
-and cancellation.
+Benchmarks time complete pool batches, including startup, image I/O and
+shutdown. The default schedule uses one warm-up and five measured repetitions
+per worker count. Use `--tiny` for a labeled functional check. When testing
+custom counts, include `1` to measure the pool baseline used for speedup and
+efficiency. [Benchmark methodology and export formats](docs/benchmarking.md)
 
-## Quality checks
+In the dashboard, **View all worker results** opens the full table and
+measurement provenance for a saved comparison. **Live Worker Monitor**
+follows Manual and Adaptive operations and shows confirmed worker observations,
+acknowledged progress and coverage gaps. A coverage gap means the event history
+is incomplete. Use the execution receipt to inspect outcomes.
+[Dashboard workflows](docs/dashboard.md) · [Telemetry API and interpretation](docs/operational-telemetry.md)
 
-Run these from the repository root:
+## Troubleshoot
 
-```powershell
-uv sync --locked --project apps/server --extra dev
-uv run --locked --project apps/server ruff check .
-uv run --locked --project apps/server ruff format --check .
-uv run --locked --project apps/server pyright --project pyrightconfig.json
-uv run --locked --project apps/server pytest apps/server/tests -q
-npm --prefix apps/web ci
-npm --prefix apps/web run format:check
-npm --prefix apps/web run lint
-npm --prefix apps/web run typecheck
-npm --prefix apps/web run test:unit
-npm --prefix apps/web run test:coverage
-npm --prefix apps/web run build
-npm --prefix apps/web run bundle:check
-uv run --locked --project apps/server python scripts/check_repository.py
-```
+- **API offline or port in use:** Check that the loopback server is running.
+  `GET /health` and **API Tests → Check connection** check liveness. Resolve
+  the port conflict before starting another instance. [Startup and recovery](docs/dashboard.md#troubleshooting)
+- **Submission rejected:** Check the registered dataset, output limits, requested
+  worker counts and whether another workload owns the coordinator or host lock.
+  [API errors](docs/api.md#http-contract)
+- **Adaptive fallback or slower work:** Read the selection reason and compare
+  measured total time, including calibration, against a fixed run.
+  [Adaptive policy and limitations](docs/adaptive-execution.md)
+- **Cancelled or failed run:** Allow dispatched work to settle, then read
+  the receipt. [Outcome categories](docs/local-execution.md#outcomes-and-interruption)
 
-Ruff uses only the root `ruff.toml`; running at the root includes future `scripts/`
-and other Python tooling. Pyright also scans the repository, including tests and
-future scripts, with the configured error-level diagnostics. ESLint checks source,
-tests, and configuration with type-aware rules. Warnings fail the lint gate.
+## Contribute
 
-The [CodeScene configuration](.codescene/code-health-rules.json) keeps `Large Method`
-active at half its default weight only in `apps/server/tests/**`, where explicit
-setup, execution, and assertions can form one readable test. Thresholds and all
-other rules, including file length and cohesion, retain their defaults. Production
-code receives no overrides. Test suites should still be organized by responsibility.
-
-The [repository-managed PR gate policy](.codescene/custom-quality-gates.json) disables
-CodeScene PR gates for backend tests. All other content retains critical-rule,
-hotspot-decline, critical-code reviewer, and assigned refactoring-goal gates;
-new-code and advisory gates are disabled. Analysis and the required GitHub quality
-checks remain active for tests. The policy requires
-CodeScene project activation; see the [CodeScene policy](docs/quality.md#codescene-policy)
-for gate settings, exceptions, and verification.
-
-[CI](.github/workflows/quality.yml) runs genuine Python lint/format/type/tests and frontend
-lint/type/tests/build checks on pull requests and pushes to `main`. Action revisions
-and tool versions are pinned. The backend test matrix includes Linux and Windows.
-Prettier, Git-aware text hygiene, offline documentation links, and workflow linting
-also run in CI. External links run separately on a weekly schedule or manual trigger.
-Real spawn integration runs in both OS/Python test matrices. The frontend test job
-also runs a real-API Playwright flow; HTTP load testing remains deferred.
-
-`npm run build` creates `apps/web/dist/`. A future deployment must serve `/health` from
-the backend on the same origin; Vite's development proxy is not a production server.
-
-## Ownership
-
-- `apps/server/tachyron/`: reusable Python package; `api.py` owns HTTP transport only.
-- `apps/server/tachyron/processing/`: manifest, image semantics, and sequential execution.
-- `apps/server/tachyron/cli.py`: processing arguments, JSON reporting, and exit codes.
-- `apps/server/tachyron/workers/`: bounded process-pool ownership and ordered aggregation.
-- `apps/server/tachyron/execution/`: local operational admission, receipts and inspection.
-- `apps/server/tachyron/benchmarking/`: schedule, observation, evidence and pure statistics.
-- `apps/server/tachyron/benchmark_cli.py`: independent benchmark run/compare commands.
-- `apps/web/src/api/`: browser HTTP contract validation and cancellation.
-- `apps/web/src/App.tsx`: lifecycle composition, focus transfer, and worker inspection.
-- Root quality configuration and `.github/workflows/`: repository-wide gates.
-
-See the [contributor quality guide](docs/quality.md) for formatter ownership,
-repository text rules, local link checks, workflow validation, and bundle reporting.
+Use the [contributor quality guide](docs/quality.md) for the pinned tools,
+local checks and browser tests. Start contributions on a focused feature, fix,
+or docs branch. The pull request template asks for exact verification commands
+and sanitized evidence. For a bug report, include
+your platform, a reproducible workload description or safe fixture, the exact
+command, and sanitized results. For performance changes, include the benchmark
+context and raw evidence so reviewers can check the comparison.

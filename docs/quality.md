@@ -50,6 +50,19 @@ npm --prefix apps/web run build
 npm --prefix apps/web run bundle:check
 ```
 
+For browser integration, build the frontend, install Chromium and run the suite
+from `apps/web/`. The real test API uses port 8001 and the preview uses port 4174.
+
+```powershell
+Set-Location apps/web
+npx playwright install chromium
+npm run test:e2e
+```
+
+On Linux, `npx playwright install --with-deps chromium` also installs the
+required browser system dependencies. The HTML report is available through
+`npx playwright show-report`.
+
 To apply supported formatting locally, use `npm --prefix apps/web run format`.
 Use `npm --prefix apps/web run lint:fix` for ESLint's available safe fixes, and
 review the resulting diff. Python formatting uses
@@ -81,13 +94,8 @@ Use backslash hard breaks when avoiding trailing spaces. Editors preserve Markdo
 spaces; Prettier normalizes supported Markdown. Intentional malformed fixtures in
 tests are generated at runtime, so checked-in source remains valid.
 
-The design review considered the
-[PanganKita checker](https://github.com/PanganKita-Labs/android/blob/main/.github/scripts/check_mojibake.py).
-No repository license could be verified, so this checker was written
-independently; source was not copied. Narrow S603 comments document resolved Git
-executables and fixed arguments without a shell; the same restriction applies in
-isolated test repositories. Git discovery errors, timeouts, and read failures fail
-the check rather than becoming success.
+Git discovery errors, timeouts, and read failures fail the check. Tests that
+verify Git discovery need their temporary repositories outside the checkout.
 
 ## Documentation links
 
@@ -131,19 +139,13 @@ that distribution's API extra and checks API imports, health and OpenAPI.
 The full backend suite separately covers statistics, SQLite migration/recovery,
 API jobs, cancellation, startup faults, cleanup and sanitized failures.
 
-This doubles backend test jobs from four to eight, with two additional tiny
-installed-package benchmark runs per job. It adds no quality job identifiers or
-dependencies; the existing aggregate gate requires every matrix job to succeed.
-Tiny workloads establish functionality, not comparative performance. Hosted
-results apply only once Actions executes; local container tests are Linux
-evidence, not a substitute for the hosted Ubuntu check. Free-threaded builds and
-Python versions beyond 3.14 are outside this matrix.
+The aggregate gate requires every matrix job to succeed. Tiny workloads exercise
+functional compatibility. Free-threaded builds and Python versions beyond 3.14
+are outside this matrix.
 
-The main workflow is [quality.yml](../.github/workflows/quality.yml). Its display
-name `CI` and original job identifiers remain stable after the filename rename;
-required check names therefore remain unchanged. Local documentation references
-use the new filename. Hosted branch rules still need verification when publishing
-is approved; this tooling does not change GitHub settings.
+The [main CI workflow](../.github/workflows/quality.yml) checks backend and frontend
+code, repository text, local documentation links and workflow syntax. It also
+calls the security workflow.
 
 Install [actionlint 1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)
 and run:
@@ -153,8 +155,7 @@ actionlint .github/workflows/quality.yml .github/workflows/links.yml .github/wor
 ```
 
 CI verifies the downloaded actionlint archive's pinned SHA256 before execution.
-No standalone shell scripts are introduced. actionlint may use ShellCheck if it is
-available on the runner; there is no separate speculative ShellCheck job.
+actionlint may use ShellCheck when it is available on the runner.
 
 The required `Quality gate` waits for every quality job, including security checks.
 It fails if any prerequisite fails, is cancelled, or is skipped. Regression tests
@@ -164,14 +165,11 @@ other quality job. No branch-protection bypass is used.
 The reusable `security.yml` scans Python and JavaScript/TypeScript with CodeQL and
 checks committed changes with pinned TruffleHog. Secret verification is disabled
 to avoid contacting credential providers; suspected secrets still fail the scan.
-Container scanning and build provenance are deferred until Docker images exist.
 
 `pr-labeler.yml` uses `pull_request_target` only for label metadata. It never checks
 out or runs pull-request code, and title/body data enter the shell through quoted
-environment variables. This workflow starts operating when it exists on the base
-branch; it is not a required quality check for introducing the workflow itself.
-Issue forms and the PR template describe Tachyron's actual scope and request
-sanitized evidence and disclosure of material AI assistance.
+environment variables. Use the issue forms and PR template to supply sanitized
+evidence and disclose material AI assistance.
 
 ## CodeScene policy
 
@@ -258,14 +256,17 @@ not measured network transfer or initial-route loading cost. Missing/empty build
 output is an error. Size growth is informational: there are no warning or failure
 budgets until representative application measurements justify them.
 
-The dashboard keeps this checker unchanged. The original shell measured 221,917 raw
-JavaScript bytes and 68,855 per-file gzip bytes before dashboard implementation.
-Use `bundle:check` after rebuilding for current measurements; Chart.js now occupies
-a separate chunk loaded when complete results are displayed.
+Chart.js loads in a separate chunk when a results view needs it. Rebuild before
+taking a bundle measurement.
 
-The [frontend tooling guide](dashboard.md#adopted-scripts) documents the adopted
-TypeScript-aware import normalizer, advisory Lighthouse runner, and their safety
-boundaries. `imports:check` joins the existing Frontend Quality job; the existing
-Frontend Tests job runs unit coverage plus one real-API Playwright flow.
-Required job names and aggregate dependencies remain unchanged. The separate
-Lighthouse workflow reports scores without adding mandatory score gates.
+Use `npm --prefix apps/web run imports:check` to check import conventions.
+`imports:preview` lists changes and `imports:fix` writes them. The normalizer
+uses the TypeScript resolver and the checked-in alias. Review its diff before
+committing changes.
+
+For an optional audit, install Chromium and run `npm run lighthouse` from
+`apps/web/` with ports 8001 and 4173 free. It runs five desktop and five mobile
+audits against the production build with a fresh, empty API. Scores are advisory.
+Malformed or missing reports fail the audit. Use
+`npm run lighthouse:report -- lighthouse-reports/RUN-DIRECTORY` from `apps/web/`
+to read a saved report. [Lighthouse workflow](../.github/workflows/lighthouse.yml)

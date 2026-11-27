@@ -89,7 +89,7 @@ If AI-assisted, briefly describe the tool and how it was used:
 
 <!--
 Example:
-Claude Code was used for repository analysis and implementation drafting.
+An AI tool helped clarify the installation instructions.
 I reviewed the resulting changes and ran the verification listed above.
 -->
 
