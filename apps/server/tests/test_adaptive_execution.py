@@ -158,6 +158,38 @@ def test_measured_selection_and_linked_receipts_under_one_lock(
         pass
 
 
+@pytest.mark.parametrize(
+    ("failure", "state", "reason"),
+    [
+        (KeyboardInterrupt, "CANCELLED", "cancelled"),
+        (OSError, "FAILED", "adaptive_failure"),
+    ],
+)
+def test_adaptive_telemetry_preserves_preselection_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    controlled: Clock,
+    failure: type[BaseException],
+    state: str,
+    reason: str,
+) -> None:
+    manifest = make_manifest(tmp_path / "input")
+    output = tmp_path / "output"
+    monkeypatch.setattr(adaptive, "_calibrate", Mock(side_effect=failure))
+    result = run_adaptive(manifest.root, output, TransformConfig(2, 2), telemetry=True)
+    snapshot = json.loads(
+        (output / "adaptive-telemetry.json").read_text(encoding="utf-8")
+    )
+    assert result.state == snapshot["state"] == state
+    assert result.calibration.selection.reason == reason
+    assert result.calibration.selection.workers == 1
+    assert snapshot["progress"]["not_started"] == 3
+    assert snapshot["progress"]["unknown"] == 0
+    assert snapshot["cancel_requested"] == (state == "CANCELLED")
+    assert inspect_adaptive(output)["state"] == state
+    assert (result.execution is not None) == (state == "CANCELLED")
+
+
 def test_budget_abstains_and_still_executes_full_workload(
     tmp_path: Path, controlled: Clock
 ) -> None:

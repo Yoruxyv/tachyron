@@ -499,6 +499,67 @@ def run_adaptive(
         return result
 
 
+def _revalidate_selection(
+    calibration: Calibration,
+    resources: Resources,
+    policy: CalibrationPolicy,
+    control: _Control,
+) -> Calibration:
+    """Recheck the measured choice against the latest feasible worker caps."""
+    if calibration.selection.workers in resources.candidates or control.cancelled():
+        return calibration
+    if policy.fallback_workers not in resources.candidates:
+        return replace(calibration, error_code="fallback_resource_limit")
+    fallback = Selection(
+        "INCONCLUSIVE",
+        policy.fallback_workers,
+        "resources_changed",
+        calibration.selection.estimates,
+    )
+    return replace(calibration, selection=fallback)
+
+
+def _interrupted_calibration(
+    calibration: Calibration,
+    fallback: int,
+    reason: str,
+    start: float,
+    setup_seconds: float,
+) -> Calibration:
+    """Record a preselection interruption while retaining any completed calibration."""
+    if calibration.selection.reason != "not_started":
+        return calibration
+    return replace(
+        calibration,
+        selection=Selection("INCONCLUSIVE", fallback, reason),
+        seconds=perf_counter() - start - setup_seconds,
+    )
+
+
+def _measure_final(
+    manifest: DatasetManifest,
+    directory: Path,
+    config: TransformConfig,
+    calibration: Calibration,
+    control: _Control,
+    *,
+    admit: bool,
+) -> tuple[ExecutionResult | None, float, Telemetry | None]:
+    """Publish the decision and measure final processing only when admitted."""
+    if control.live is not None:
+        control.live.select(calibration.selection, calibration.profiled_inputs)
+    if not admit:
+        return None, 0.0, None
+    return _measure(
+        manifest,
+        directory / "execution",
+        config,
+        calibration.selection.workers,
+        control.cancelled,
+        **_measurement_options(control.live),
+    )
+
+
 def _run_adaptive_manifest(
     manifest: DatasetManifest,
     output: Path,
@@ -560,65 +621,45 @@ def _run_adaptive_manifest(
             calibration.max_input_pixels,
             max(entry.size_bytes for entry in manifest.entries),
         )
-        if (
-            calibration.selection.workers not in full_resources.candidates
-            and not control.cancelled()
-        ):
-            if policy.fallback_workers in full_resources.candidates:
-                calibration = replace(
-                    calibration,
-                    selection=Selection(
-                        "INCONCLUSIVE",
-                        policy.fallback_workers,
-                        "resources_changed",
-                        calibration.selection.estimates,
-                    ),
-                )
-            else:
-                calibration = replace(calibration, error_code="fallback_resource_limit")
-        if live is not None:
-            live.select(calibration.selection, calibration.profiled_inputs)
-        if calibration.error_code is None:
-            execution, execution_seconds, execution_resources = _measure(
-                manifest,
-                directory / "execution",
-                config,
-                calibration.selection.workers,
-                control.cancelled,
-                **_measurement_options(live),
-            )
+        calibration = _revalidate_selection(
+            calibration, full_resources, policy, control
+        )
+        execution, execution_seconds, execution_resources = _measure_final(
+            manifest,
+            directory,
+            config,
+            calibration,
+            control,
+            admit=calibration.error_code is None,
+        )
         state = execution.state if execution else "FAILED"
     except KeyboardInterrupt:
         control.requested = True
-        if calibration.selection.reason == "not_started":
-            calibration = replace(
-                calibration,
-                selection=Selection(
-                    "INCONCLUSIVE", policy.fallback_workers, "cancelled"
-                ),
-                seconds=perf_counter() - start - setup_seconds,
-            )
+        calibration = _interrupted_calibration(
+            calibration,
+            policy.fallback_workers,
+            "cancelled",
+            start,
+            setup_seconds,
+        )
         if not (directory / "execution").exists():
-            if live is not None:
-                live.select(calibration.selection, calibration.profiled_inputs)
-            execution, execution_seconds, execution_resources = _measure(
+            execution, execution_seconds, execution_resources = _measure_final(
                 manifest,
-                directory / "execution",
+                directory,
                 config,
-                calibration.selection.workers,
-                control.cancelled,
-                **_measurement_options(live),
+                calibration,
+                control,
+                admit=True,
             )
         state = execution.state if execution else "UNCONFIRMED"
     except (OSError, ValueError, WorkerExecutionError):
-        if calibration.selection.reason == "not_started":
-            calibration = replace(
-                calibration,
-                selection=Selection(
-                    "INCONCLUSIVE", policy.fallback_workers, "adaptive_failure"
-                ),
-                seconds=perf_counter() - start - setup_seconds,
-            )
+        calibration = _interrupted_calibration(
+            calibration,
+            policy.fallback_workers,
+            "adaptive_failure",
+            start,
+            setup_seconds,
+        )
         calibration = replace(calibration, error_code="adaptive_failure")
         state = "UNCONFIRMED" if (directory / "execution").exists() else "FAILED"
     if live is not None and (
