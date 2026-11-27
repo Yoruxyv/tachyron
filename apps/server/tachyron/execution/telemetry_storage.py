@@ -34,6 +34,16 @@ _TASK_STATES: dict[str, tuple[str, ...]] = {
     "task_failed": ("FAILED",),
 }
 _RESULT_EVENTS = {"task_result_received", "task_succeeded", "task_failed"}
+_CHILD_PAYLOAD = _IDENTITY | {"worker_monotonic_ns"}
+_EVENT_PAYLOADS: dict[str, set[str]] = {
+    **dict.fromkeys(_TASK_STATES, _ATTEMPT),
+    **dict.fromkeys(CHILD_EVENTS, _CHILD_PAYLOAD),
+    "task_started": _CHILD_PAYLOAD | _ATTEMPT,
+    "worker_exited": _IDENTITY | {"exit_code"},
+    "execution_terminal": {"run_state", "error_code"},
+    "execution_started": set(),
+    "cancel_requested": set(),
+}
 _COUNTERS = {
     "dropped_event_count_lower_bound",
     "event_window_evictions",
@@ -133,46 +143,46 @@ def _validate_attempt(
         raise ValueError("Invalid task attempt")
 
 
-def _event_fields(
+def _validate_event_worker(
+    event: dict[str, object], workers: dict[str, dict[str, object]]
+) -> None:
+    identity = event["instance_id"]
+    if not isinstance(identity, str) or identity not in workers:
+        raise ValueError("Unrecognized event worker")
+    worker = workers[identity]
+    if any(
+        type(event[key]) is not type(worker[key]) or event[key] != worker[key]
+        for key in _IDENTITY
+    ):
+        raise ValueError("Mismatched event worker")
+    if "exit_code" in event and (
+        type(event["exit_code"]) is not int
+        or event["exit_code"] != worker.get("exit_code")
+    ):
+        raise ValueError("Mismatched worker exit")
+
+
+def _validate_event_payload(
     event: dict[str, object],
     kind: str,
     receipt: ExecutionResult,
     workers: dict[str, dict[str, object]],
-) -> set[str]:
-    fields = set(_EVENT)
-    if kind in _TASK_STATES:
+) -> None:
+    fields = _EVENT | _EVENT_PAYLOADS[kind]
+    if kind in _RESULT_EVENTS and _IDENTITY & event.keys():
+        fields |= _IDENTITY
+    if event.keys() != fields:
+        raise ValueError("Invalid telemetry event fields")
+    if "index" in event:
         _validate_attempt(event, kind, receipt)
-        fields.update(_ATTEMPT)
-    if kind in CHILD_EVENTS:
+    if "instance_id" in event:
+        _validate_event_worker(event, workers)
+    if "worker_monotonic_ns" in event:
         _integer(event["worker_monotonic_ns"])
-        fields.add("worker_monotonic_ns")
-    if kind in (*CHILD_EVENTS, "worker_exited") or (
-        kind in _RESULT_EVENTS and _IDENTITY & event.keys()
+    if kind == "execution_terminal" and (
+        event["run_state"] != receipt.state or event["error_code"] != receipt.error_code
     ):
-        fields.update(_IDENTITY)
-        identity = event["instance_id"]
-        if not isinstance(identity, str) or identity not in workers:
-            raise ValueError("Unrecognized event worker")
-        worker = workers[identity]
-        if any(
-            type(event[key]) is not type(worker[key]) or event[key] != worker[key]
-            for key in _IDENTITY
-        ):
-            raise ValueError("Mismatched event worker")
-        if kind == "worker_exited":
-            fields.add("exit_code")
-            if type(event["exit_code"]) is not int or event["exit_code"] != worker.get(
-                "exit_code"
-            ):
-                raise ValueError("Mismatched worker exit")
-    if kind == "execution_terminal":
-        fields.update(("run_state", "error_code"))
-        if (
-            event["run_state"] != receipt.state
-            or event["error_code"] != receipt.error_code
-        ):
-            raise ValueError("Mismatched terminal observation")
-    return fields
+        raise ValueError("Mismatched terminal observation")
 
 
 def _validate_events(
@@ -189,14 +199,7 @@ def _validate_events(
     for number, value in enumerate(raw, sequence - len(raw) + 1):
         event = _object(value)
         kind = event["type"]
-        if not isinstance(kind, str) or kind not in (
-            *_TASK_STATES,
-            *CHILD_EVENTS,
-            "worker_exited",
-            "cancel_requested",
-            "execution_started",
-            "execution_terminal",
-        ):
+        if not isinstance(kind, str) or kind not in _EVENT_PAYLOADS:
             raise ValueError("Unknown telemetry event")
         expected_origin = "child" if kind in CHILD_EVENTS else "parent"
         observed = _integer(event["received_monotonic_ns"])
@@ -208,9 +211,9 @@ def _validate_events(
             or (kind == "execution_started") != (number == 1)
             or (kind == "execution_terminal") != (number == sequence)
             or (kind == "cancel_requested" and not receipt.cancel_requested)
-            or set(event) != _event_fields(event, kind, receipt, workers)
         ):
             raise ValueError("Invalid telemetry event")
+        _validate_event_payload(event, kind, receipt, workers)
         index, worker = event.get("index"), event.get("instance_id")
         key = (kind, index if index is not None else worker)
         if key in seen:

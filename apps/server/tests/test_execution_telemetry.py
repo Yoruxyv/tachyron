@@ -341,15 +341,17 @@ def test_artifact_validation_rejects_malformed_and_misattributed_events(
         target.write_text(json.dumps(snapshot), encoding="utf-8")
         with pytest.raises(ProcessingError, match="Operational telemetry unavailable"):
             inspect_telemetry(output)
-    for key, value in (
-        ("attempt_id", "wrong-attempt"),
-        ("index", True),
-        ("path", "/private/file"),
+    for kind, key, value in (
+        ("task_succeeded", "attempt_id", "wrong-attempt"),
+        ("task_succeeded", "index", True),
+        ("task_succeeded", "path", "/private/file"),
+        ("worker_exited", "pid", True),
+        ("worker_exited", "exit_code", 9),
+        ("execution_terminal", "run_state", "FAILED"),
+        ("execution_terminal", "error_code", "worker_failure"),
     ):
         snapshot = _object(json.loads(original))
-        event = next(
-            row for row in _events(snapshot) if row["type"] == "task_succeeded"
-        )
+        event = next(row for row in _events(snapshot) if row["type"] == kind)
         event[key] = value
         target.write_text(json.dumps(snapshot), encoding="utf-8")
         with pytest.raises(ProcessingError, match="Operational telemetry unavailable"):
