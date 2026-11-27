@@ -2,12 +2,14 @@
 """Bounded local calibration followed by one frozen full-workload execution."""
 
 import hashlib
+import logging
 import shutil
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from time import perf_counter
+from typing import TypedDict
 from uuid import uuid4
 
 from tachyron.benchmarking.models import Telemetry
@@ -24,7 +26,13 @@ from tachyron.execution.calibration import (
     select_supported_workers,
     trial_image_budget,
 )
-from tachyron.execution.models import LOCAL_LIMITS, ExecutionResult, validate_limits
+from tachyron.execution.live import LiveTelemetry, TrialScope
+from tachyron.execution.models import (
+    LOCAL_LIMITS,
+    ExecutionResult,
+    ExecutionState,
+    validate_limits,
+)
 from tachyron.execution.resources import Resources, observe_resources
 from tachyron.execution.runner import _admit, _run_manifest
 from tachyron.execution.sampling import (
@@ -44,6 +52,8 @@ from tachyron.processing import (
 )
 from tachyron.processing.processor import publish_bytes
 from tachyron.workers import WorkerExecutionError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -72,10 +82,22 @@ class AdaptiveResult:
     """Returned timing includes final publication; persisted timing has a named boundary."""
 
     calibration_id: str
-    state: str
+    state: ExecutionState
     calibration: Calibration
     execution: ExecutionResult | None
     total_seconds: float
+
+    def observed_terminal(self) -> tuple[ExecutionState, str | None]:
+        """Conservatively reconcile workflow evidence for telemetry consumers."""
+        if (
+            self.state == "UNCONFIRMED"
+            or self.calibration.unconfirmed_trial is not None
+        ):
+            return "UNCONFIRMED", "execution_unconfirmed"
+        error = (
+            self.execution.error_code if self.execution else self.calibration.error_code
+        )
+        return self.state, error
 
     def to_dict(self) -> dict[str, object]:
         """Return a bounded console summary; full sample evidence lives in adaptive.json."""
@@ -93,20 +115,44 @@ class AdaptiveResult:
 
 
 class _Control:
-    def __init__(self, cancelled: Callable[[], bool] | None, deadline: float) -> None:
+    def __init__(
+        self,
+        cancelled: Callable[[], bool] | None,
+        deadline: float,
+        live: LiveTelemetry | None = None,
+    ) -> None:
         self.started = perf_counter()
         self.callback = cancelled or (lambda: False)
         self.deadline = deadline
         self.requested = False
         self.budget_reached = False
+        self.live = live
 
     def cancelled(self) -> bool:
         self.requested = self.requested or self.callback()
+        if self.requested and self.live is not None:
+            self.live.request_cancel()
         return self.requested
 
     def stopped(self) -> bool:
         self.budget_reached = self.budget_reached or perf_counter() >= self.deadline
         return self.cancelled() or self.budget_reached
+
+
+class _MeasurementOptions(TypedDict, total=False):
+    live: LiveTelemetry
+    trial: TrialScope
+
+
+def _measurement_options(
+    live: LiveTelemetry | None, trial: TrialScope | None = None
+) -> _MeasurementOptions:
+    options: _MeasurementOptions = {}
+    if live is not None:
+        options["live"] = live
+        if trial is not None:
+            options["trial"] = trial
+    return options
 
 
 def _measure(
@@ -115,13 +161,22 @@ def _measure(
     config: TransformConfig,
     workers: int,
     cancelled: Callable[[], bool],
+    *,
+    live: LiveTelemetry | None = None,
+    trial: TrialScope | None = None,
 ) -> tuple[ExecutionResult, float, Telemetry]:
     start = perf_counter()
     sampler = Sampler(0.1)
     sampler.start()
     try:
         result = _run_manifest(
-            manifest, directory, config, workers, cancelled=cancelled
+            manifest,
+            directory,
+            config,
+            workers,
+            cancelled=cancelled,
+            live=live,
+            trial=trial,
         )
     finally:
         resources = sampler.stop(start, perf_counter())
@@ -155,7 +210,14 @@ def _trials(
         trial_name = f"trial-{len(trials):03d}"
         try:
             result, seconds, telemetry = _measure(
-                subset, directory / trial_name, config, workers, control.stopped
+                subset,
+                directory / trial_name,
+                config,
+                workers,
+                control.stopped,
+                **_measurement_options(
+                    control.live, TrialScope(len(trials), repetition)
+                ),
             )
         except KeyboardInterrupt:
             control.requested = True
@@ -383,6 +445,7 @@ def run_adaptive(
     policy: CalibrationPolicy = DEFAULT_CALIBRATION_POLICY,
     limits: ResourceLimits = LOCAL_LIMITS,
     cancelled: Callable[[], bool] | None = None,
+    telemetry: bool = False,
 ) -> AdaptiveResult:
     """Calibrate locally under one lock, then execute the original full manifest once.
 
@@ -393,6 +456,7 @@ def run_adaptive(
         policy: Versioned sample/run/time budgets and explicit fixed fallback.
         limits: Existing local policy, optionally narrowed.
         cancelled: Cooperative user cancellation, independent of calibration budget.
+        telemetry: Publish a bounded overview of calibration and execution observations.
 
     Returns:
         Actual measured workflow duration, decision and full execution if attempted.
@@ -406,138 +470,230 @@ def run_adaptive(
     validate_limits(limits)
     with experiment_lock():
         manifest = build_manifest(root, limits)
-        _admit(manifest, output, config)
-        directory = prepare_run(manifest, output, config)
-        calibration_id = str(uuid4())
-        admission: dict[str, object] = {
-            "schema_version": 1,
-            "mode": "adaptive-calibration-v4",
-            "calibration_id": calibration_id,
-            "config": asdict(config),
-            "limits": asdict(limits),
-            "policy": asdict(policy),
-            "method": METHOD_V4,
-            "manifest": {
-                "sha256": manifest.sha256,
-                "total_bytes": manifest.total_bytes,
-                "entries": [asdict(entry) for entry in manifest.entries],
-            },
-        }
-        publish_bytes(directory, "adaptive-admission.json", encode(admission))
-        execution = None
-        execution_seconds = 0.0
-        full_resources = None
-        execution_resources = None
-        calibration = Calibration(
-            Selection("INCONCLUSIVE", policy.fallback_workers, "not_started"),
-            observe_resources(
-                config,
-                limits.max_pixels,
-                max(entry.size_bytes for entry in manifest.entries),
-            ),
-            (),
-            (),
-            0,
+        live = (
+            LiveTelemetry(
+                str(uuid4()), "adaptive", manifest.sha256, len(manifest.entries)
+            )
+            if telemetry
+            else None
+        )
+        if live is not None:
+            live.start()
+        result = _run_adaptive_manifest(
+            manifest,
+            output,
+            config,
+            policy=policy,
+            cancelled=cancelled,
+            start=start,
+            live=live,
+        )
+        if live is not None:
+            live.finish(*result.observed_terminal())
+            try:
+                publish_bytes(
+                    output, "adaptive-telemetry.json", encode(asdict(live.snapshot()))
+                )
+            except OSError:
+                logger.warning("Optional adaptive telemetry could not be published")
+        return result
+
+
+def _revalidate_selection(
+    calibration: Calibration,
+    resources: Resources,
+    policy: CalibrationPolicy,
+    control: _Control,
+) -> Calibration:
+    """Recheck the measured choice against the latest feasible worker caps."""
+    if calibration.selection.workers in resources.candidates or control.cancelled():
+        return calibration
+    if policy.fallback_workers not in resources.candidates:
+        return replace(calibration, error_code="fallback_resource_limit")
+    fallback = Selection(
+        "INCONCLUSIVE",
+        policy.fallback_workers,
+        "resources_changed",
+        calibration.selection.estimates,
+    )
+    return replace(calibration, selection=fallback)
+
+
+def _interrupted_calibration(
+    calibration: Calibration,
+    fallback: int,
+    reason: str,
+    start: float,
+    setup_seconds: float,
+) -> Calibration:
+    """Record a preselection interruption while retaining any completed calibration."""
+    if calibration.selection.reason != "not_started":
+        return calibration
+    return replace(
+        calibration,
+        selection=Selection("INCONCLUSIVE", fallback, reason),
+        seconds=perf_counter() - start - setup_seconds,
+    )
+
+
+def _measure_final(
+    manifest: DatasetManifest,
+    directory: Path,
+    config: TransformConfig,
+    calibration: Calibration,
+    control: _Control,
+    *,
+    admit: bool,
+) -> tuple[ExecutionResult | None, float, Telemetry | None]:
+    """Publish the decision and measure final processing only when admitted."""
+    if control.live is not None:
+        control.live.select(calibration.selection, calibration.profiled_inputs)
+    if not admit:
+        return None, 0.0, None
+    return _measure(
+        manifest,
+        directory / "execution",
+        config,
+        calibration.selection.workers,
+        control.cancelled,
+        **_measurement_options(control.live),
+    )
+
+
+def _run_adaptive_manifest(
+    manifest: DatasetManifest,
+    output: Path,
+    config: TransformConfig,
+    *,
+    policy: CalibrationPolicy = DEFAULT_CALIBRATION_POLICY,
+    cancelled: Callable[[], bool] | None = None,
+    start: float,
+    live: LiveTelemetry | None = None,
+) -> AdaptiveResult:
+    """Run calibration and final processing under the caller-owned host lock."""
+    limits = manifest.limits
+    _admit(manifest, output, config)
+    directory = prepare_run(manifest, output, config)
+    calibration_id = live.run_id if live is not None else str(uuid4())
+    admission: dict[str, object] = {
+        "schema_version": 1,
+        "mode": "adaptive-calibration-v4",
+        "calibration_id": calibration_id,
+        "config": asdict(config),
+        "limits": asdict(limits),
+        "policy": asdict(policy),
+        "method": METHOD_V4,
+        "manifest": {
+            "sha256": manifest.sha256,
+            "total_bytes": manifest.total_bytes,
+            "entries": [asdict(entry) for entry in manifest.entries],
+        },
+    }
+    publish_bytes(directory, "adaptive-admission.json", encode(admission))
+    execution = None
+    execution_seconds = 0.0
+    full_resources = None
+    execution_resources = None
+    calibration = Calibration(
+        Selection("INCONCLUSIVE", policy.fallback_workers, "not_started"),
+        observe_resources(
+            config,
             limits.max_pixels,
-            0,
-            trial_image_budget=trial_image_budget(len(manifest.entries), policy),
+            max(entry.size_bytes for entry in manifest.entries),
+        ),
+        (),
+        (),
+        0,
+        limits.max_pixels,
+        0,
+        trial_image_budget=trial_image_budget(len(manifest.entries), policy),
+    )
+    if live is not None:
+        live.start_calibration()
+    setup_seconds = perf_counter() - start
+    control = _Control(cancelled, perf_counter() + policy.max_seconds, live)
+    try:
+        calibration = _calibrate(
+            manifest, directory, config, policy, control, setup_seconds
         )
-        setup_seconds = perf_counter() - start
-        control = _Control(cancelled, perf_counter() + policy.max_seconds)
-        try:
-            calibration = _calibrate(
-                manifest, directory, config, policy, control, setup_seconds
-            )
-            full_resources = observe_resources(
+        full_resources = observe_resources(
+            config,
+            calibration.max_input_pixels,
+            max(entry.size_bytes for entry in manifest.entries),
+        )
+        calibration = _revalidate_selection(
+            calibration, full_resources, policy, control
+        )
+        execution, execution_seconds, execution_resources = _measure_final(
+            manifest,
+            directory,
+            config,
+            calibration,
+            control,
+            admit=calibration.error_code is None,
+        )
+        state = execution.state if execution else "FAILED"
+    except KeyboardInterrupt:
+        control.requested = True
+        calibration = _interrupted_calibration(
+            calibration,
+            policy.fallback_workers,
+            "cancelled",
+            start,
+            setup_seconds,
+        )
+        if not (directory / "execution").exists():
+            execution, execution_seconds, execution_resources = _measure_final(
+                manifest,
+                directory,
                 config,
-                calibration.max_input_pixels,
-                max(entry.size_bytes for entry in manifest.entries),
+                calibration,
+                control,
+                admit=True,
             )
-            if (
-                calibration.selection.workers not in full_resources.candidates
-                and not control.cancelled()
-            ):
-                if policy.fallback_workers in full_resources.candidates:
-                    calibration = replace(
-                        calibration,
-                        selection=Selection(
-                            "INCONCLUSIVE",
-                            policy.fallback_workers,
-                            "resources_changed",
-                            calibration.selection.estimates,
-                        ),
-                    )
-                else:
-                    calibration = replace(
-                        calibration, error_code="fallback_resource_limit"
-                    )
-            if calibration.error_code is None:
-                execution, execution_seconds, execution_resources = _measure(
-                    manifest,
-                    directory / "execution",
-                    config,
-                    calibration.selection.workers,
-                    control.cancelled,
-                )
-            state = execution.state if execution else "FAILED"
-        except KeyboardInterrupt:
-            control.requested = True
-            if calibration.selection.reason == "not_started":
-                calibration = replace(
-                    calibration,
-                    selection=Selection(
-                        "INCONCLUSIVE", policy.fallback_workers, "cancelled"
-                    ),
-                    seconds=perf_counter() - start - setup_seconds,
-                )
-            if not (directory / "execution").exists():
-                execution, execution_seconds, execution_resources = _measure(
-                    manifest,
-                    directory / "execution",
-                    config,
-                    calibration.selection.workers,
-                    control.cancelled,
-                )
-            state = execution.state if execution else "UNCONFIRMED"
-        except (OSError, ValueError, WorkerExecutionError):
-            if calibration.selection.reason == "not_started":
-                calibration = replace(
-                    calibration,
-                    selection=Selection(
-                        "INCONCLUSIVE", policy.fallback_workers, "adaptive_failure"
-                    ),
-                    seconds=perf_counter() - start - setup_seconds,
-                )
-            calibration = replace(calibration, error_code="adaptive_failure")
-            state = "UNCONFIRMED" if (directory / "execution").exists() else "FAILED"
-        report: dict[str, object] = {
-            "schema_version": 1,
-            "mode": "adaptive-calibration-v4",
-            "calibration_id": calibration_id,
-            "manifest_sha256": manifest.sha256,
-            "state": state,
-            "calibration": asdict(calibration),
-            "resources_before_execution": asdict(full_resources)
-            if full_resources
-            else None,
-            "setup_seconds": setup_seconds,
-            "execution_seconds": execution_seconds,
-            "execution_resources": asdict(execution_resources)
-            if execution_resources
-            else None,
-            "elapsed_before_publication_seconds": perf_counter() - start,
-            "execution_id": execution.execution_id if execution else None,
-        }
-        encoded = encode(report)
-        publish_bytes(directory, "adaptive.json", encoded)
-        timing: dict[str, object] = {
-            "schema_version": 1,
-            "mode": "adaptive-timing-v1",
-            "calibration_id": calibration_id,
-            "report_sha256": hashlib.sha256(encoded).hexdigest(),
-            "through_result_publication_seconds": perf_counter() - start,
-        }
-        publish_bytes(directory, "timing.json", encode(timing))
-        return AdaptiveResult(
-            calibration_id, state, calibration, execution, perf_counter() - start
+        state = execution.state if execution else "UNCONFIRMED"
+    except (OSError, ValueError, WorkerExecutionError):
+        calibration = _interrupted_calibration(
+            calibration,
+            policy.fallback_workers,
+            "adaptive_failure",
+            start,
+            setup_seconds,
         )
+        calibration = replace(calibration, error_code="adaptive_failure")
+        state = "UNCONFIRMED" if (directory / "execution").exists() else "FAILED"
+    if live is not None and (
+        control.requested or (execution and execution.cancel_requested)
+    ):
+        live.request_cancel()
+    report: dict[str, object] = {
+        "schema_version": 1,
+        "mode": "adaptive-calibration-v4",
+        "calibration_id": calibration_id,
+        "manifest_sha256": manifest.sha256,
+        "state": state,
+        "calibration": asdict(calibration),
+        "resources_before_execution": asdict(full_resources)
+        if full_resources
+        else None,
+        "setup_seconds": setup_seconds,
+        "execution_seconds": execution_seconds,
+        "execution_resources": asdict(execution_resources)
+        if execution_resources
+        else None,
+        "elapsed_before_publication_seconds": perf_counter() - start,
+        "execution_id": execution.execution_id if execution else None,
+    }
+    encoded = encode(report)
+    publish_bytes(directory, "adaptive.json", encoded)
+    timing: dict[str, object] = {
+        "schema_version": 1,
+        "mode": "adaptive-timing-v1",
+        "calibration_id": calibration_id,
+        "report_sha256": hashlib.sha256(encoded).hexdigest(),
+        "through_result_publication_seconds": perf_counter() - start,
+    }
+    publish_bytes(directory, "timing.json", encode(timing))
+    return AdaptiveResult(
+        calibration_id, state, calibration, execution, perf_counter() - start
+    )

@@ -15,6 +15,7 @@ import psutil
 from tachyron.benchmarking.exports import read_experiment
 from tachyron.benchmarking.models import WORKERS, BenchmarkError, RunRecord
 from tachyron.benchmarking.runner import run_experiment
+from tachyron.execution.live import LiveSnapshot, LiveTelemetry
 from tachyron.imports.models import TERMINAL as IMPORT_TERMINAL
 from tachyron.imports.models import DatasetImportError, Operation
 from tachyron.imports.service import Session
@@ -25,6 +26,11 @@ from tachyron.jobs.models import (
     Job,
     Metrics,
     RunRequest,
+)
+from tachyron.jobs.operations import (
+    RETAINED_OPERATIONS,
+    OperationalJob,
+    OperationRequest,
 )
 from tachyron.persistence import HistoryStore
 from tachyron.processing import DatasetManifest, ProcessingError, build_manifest
@@ -57,6 +63,8 @@ class Coordinator:
         self._condition = Condition()
         self._queue: deque[str] = deque()
         self._signals: dict[str, Event] = {}
+        self._operation: OperationalJob | None = None
+        self._operational_snapshots: dict[str, LiveTelemetry] = {}
         self._closing = False
         self._healthy = False
         self._thread: Thread | None = None
@@ -149,6 +157,8 @@ class Coordinator:
                 return previous
             if self._import_reserved:
                 raise AdmissionError("import_in_progress", 409)
+            if self._operation is not None:
+                raise AdmissionError("workload_busy", 409)
             manifest = self.resolve_manifest(request.dataset_id)
             manifest.limits.check_output(request.transform(), len(manifest.entries))
             if len(self._queue) >= self.settings.queue_capacity:
@@ -171,6 +181,57 @@ class Coordinator:
                 raise
             self._condition.notify()
             return job
+
+    def submit_operation(self, request: OperationRequest) -> LiveSnapshot:
+        """Reserve the sole operational slot without overlapping other work."""
+        with self._condition:
+            if self._closing or not self._healthy:
+                raise AdmissionError("coordinator_unavailable", 503)
+            if self._operation is not None or self._signals or self._import_reserved:
+                raise AdmissionError("workload_busy", 409)
+            manifest = self.resolve_manifest(request.dataset_id)
+            manifest.limits.check_output(request.transform(), len(manifest.entries))
+            identifier = str(uuid4())
+            live = LiveTelemetry(
+                identifier,
+                request.mode,
+                manifest.sha256,
+                len(manifest.entries),
+                dataset_id=request.dataset_id,
+                requested_workers=request.workers,
+            )
+            self._operation = OperationalJob(request, manifest, live)
+            self._operational_snapshots[identifier] = live
+            if len(self._operational_snapshots) > RETAINED_OPERATIONS:
+                del self._operational_snapshots[next(iter(self._operational_snapshots))]
+            self._condition.notify()
+            return live.snapshot()
+
+    def _get_operation(self, identifier: str) -> LiveTelemetry:
+        live = self._operational_snapshots.get(identifier)
+        if live is None:
+            raise AdmissionError("operation_unavailable", 404)
+        if (
+            self._operation is not None
+            and self._operation.telemetry is live
+            and not self._healthy
+        ):
+            raise AdmissionError("operation_unavailable", 503)
+        return live
+
+    def operation(self, identifier: str, after: int | None) -> LiveSnapshot:
+        """Poll a retained execution without reserving resources for the reader."""
+        with self._condition:
+            live = self._get_operation(identifier)
+        return live.snapshot(after)
+
+    def cancel_operation(self, identifier: str) -> LiveSnapshot:
+        """Cancel a queued operation or request cooperative drain of active work."""
+        with self._condition:
+            live = self._get_operation(identifier)
+            if live.request_cancel():
+                self._operation = None
+        return live.snapshot()
 
     def get(self, identifier: str) -> Job:
         """Read durable status, reporting an unavailable consumer honestly."""
@@ -213,6 +274,11 @@ class Coordinator:
             self._closing = True
             for signal in self._signals.values():
                 signal.set()
+            if (
+                self._operation is not None
+                and self._operation.telemetry.request_cancel()
+            ):
+                self._operation = None
             self._condition.notify_all()
             session = self.import_session
         if session is not None:
@@ -251,7 +317,7 @@ class Coordinator:
                 return previous
             if self._closing or not self._healthy:
                 raise DatasetImportError("coordinator_unavailable", 503)
-            if self._signals or self._queue:
+            if self._signals or self._queue or self._operation is not None:
                 raise DatasetImportError("workload_busy", 409)
             if self._import_reserved:
                 raise DatasetImportError("import_busy", 429)
@@ -297,24 +363,45 @@ class Coordinator:
             raise AdmissionError("dataset_unavailable", 404)
         return manifest
 
+    def _next_job(self) -> OperationalJob | tuple[Job, Event] | None:
+        with self._condition:
+            self._condition.wait_for(
+                lambda: (
+                    bool(self._queue) or self._operation is not None or self._closing
+                )
+            )
+            if self._closing:
+                return None
+            if self._operation is not None:
+                self._operation.telemetry.start()
+                return self._operation
+            identifier = self._queue[0]
+            job = self.store.get(identifier)
+            if job is None:
+                raise RuntimeError("Accepted job disappeared")
+            job = job.model_copy(update={"state": "RUNNING", "started_at": stamp()})
+            self.store.save(job)
+            self._queue.popleft()
+            return job, self._signals[identifier]
+
+    def _execute_operation(self, job: OperationalJob) -> bool:
+        state, error = job.execute(self.directory)
+        with self._condition:
+            job.telemetry.finish(state, error)
+            self._operation = None
+            if state == "UNCONFIRMED":
+                self._healthy = False
+            return self._healthy
+
     def _work(self) -> None:
-        """Run one job at a time; a storage fault closes admission until restart."""
+        """Run one job at a time; unconfirmed ownership closes admission."""
         try:
-            while True:
-                with self._condition:
-                    self._condition.wait_for(lambda: bool(self._queue) or self._closing)
-                    if self._closing:
+            while (job := self._next_job()) is not None:
+                if isinstance(job, OperationalJob):
+                    if not self._execute_operation(job):
                         return
-                    identifier = self._queue[0]
-                    job = self.store.get(identifier)
-                    if job is None:
-                        raise RuntimeError("Accepted job disappeared")
-                    job = job.model_copy(
-                        update={"state": "RUNNING", "started_at": stamp()}
-                    )
-                    self.store.save(job)
-                    self._queue.popleft()
-                self._execute(job, self._signals[identifier])
+                else:
+                    self._execute(*job)
         except (sqlite3.Error, OSError, ValueError, RuntimeError):
             logger.warning("Job coordinator stopped unexpectedly; restart required")
         finally:

@@ -191,6 +191,7 @@ class WorkerTelemetry:
         *,
         window: int = EVENT_WINDOW,
         queue_capacity: int = CHANNEL_CAPACITY,
+        on_event: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         if not 1 <= window <= EVENT_WINDOW:
             raise ValueError("Invalid telemetry event window")
@@ -202,20 +203,22 @@ class WorkerTelemetry:
         self._workers: dict[str, dict[str, object]] = {}
         self._sequence = 0
         self._cancel_requested = False
+        self._on_event = on_event
         self._event("execution_started")
 
     def _event(self, kind: str, origin: str = "parent", /, **fields: object) -> None:
         self._sequence += 1
-        self._events.append(
-            {
-                "version": 1,
-                "sequence": self._sequence,
-                "type": kind,
-                "origin": origin,
-                "received_monotonic_ns": monotonic_ns(),
-                **fields,
-            }
-        )
+        event: dict[str, object] = {
+            "version": 1,
+            "sequence": self._sequence,
+            "type": kind,
+            "origin": origin,
+            "received_monotonic_ns": monotonic_ns(),
+            **fields,
+        }
+        self._events.append(event)
+        if self._on_event is not None:
+            self._on_event(event)
 
     def _observe(self, worker: _Worker, kind: str) -> dict[str, object]:
         fields: dict[str, object] = {

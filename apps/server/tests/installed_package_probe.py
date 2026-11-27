@@ -34,6 +34,7 @@ if sys.argv[1:] == ["--api"]:
     assert asyncio.run(health()) == {"status": "ok"}
     assert "/api/jobs" in create_app(Settings()).openapi()["paths"]
     assert "/api/dataset-imports" in create_app().openapi()["paths"]
+    assert "/api/operations/{run_id}" in create_app().openapi()["paths"]
     raise SystemExit(0)
 
 

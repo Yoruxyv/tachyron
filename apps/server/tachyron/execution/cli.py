@@ -43,6 +43,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Write bounded worker and task observations to telemetry.json",
     )
     adaptive.add_argument(
+        "--telemetry",
+        action="store_true",
+        help="Write bounded adaptive workflow telemetry",
+    )
+    adaptive.add_argument(
         "--fallback-workers", type=int, choices=(1, 2, 4, 8), default=1
     )
     adaptive.add_argument("--sample-files", type=int, default=32)
@@ -85,6 +90,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.fallback_workers,
                         args.budget_images,
                     ),
+                    telemetry=args.telemetry,
                 )
             else:
                 result = run_local(
