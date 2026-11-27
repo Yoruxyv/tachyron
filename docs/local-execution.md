@@ -4,7 +4,7 @@
 1/2/4/8-process spawn pool. It supports admission of up to 10,000 files through a
 separate `local-execution-v1` contract. The separate
 [adaptive workflow](adaptive-execution.md) adds bounded worker calibration.
-Worker lifecycle events, HTTP admission and dashboard integration remain deferred.
+Fixed-worker runs can opt into [worker telemetry](#worker-telemetry-stage-c1).
 
 ## Run and inspect
 
@@ -45,6 +45,46 @@ if __name__ == "__main__":
 policy. Every limit must be no larger than `LOCAL_LIMITS`; arbitrary pool sizes
 and expanded policies are rejected. Run it from the main thread when relying on
 Ctrl+C handling. There is no background service or automatic resumption.
+
+## Worker telemetry (Stage C1)
+
+`--telemetry` writes one versioned `telemetry.json` alongside the terminal receipt.
+Use `inspect-telemetry` to validate the artifact against the receipt and print it
+as JSON. Inspection uses the same exit codes as `inspect`. An unavailable or
+invalid artifact returns exit code 2 with a diagnostic. The run still uses the
+execution receipt to determine its exit status if optional telemetry fails.
+
+```powershell
+uv run --locked --project apps/server tachyron-execute run E:/Images/batch --output E:/Results/traced --workers 4 --telemetry
+uv run --locked --project apps/server tachyron-execute inspect-telemetry E:/Results/traced
+```
+
+- The snapshot identifies the execution and manifest and includes final receipt
+  counts, the requested worker cap, and observed worker instances. Each task
+  attempt is identified by execution UUID and zero-based manifest index. Use that
+  index to look up the original input in the local receipt.
+- A child reports `worker_started`, `worker_ready` and `task_started` from the
+  spawned process. The owner records submission, acknowledged task outcomes,
+  cancellation requests and final execution status. A process exit is attributed
+  to its owned process handle. A pool failure leaves unconfirmed attempts
+  `task_unknown` without worker attribution.
+- The `sequence` and `received_monotonic_ns` fields order observations in the
+  parent. Child events also carry `worker_monotonic_ns` for within-process timing.
+  Delivery delay can reorder observations relative to their occurrence. Use the
+  UTC snapshot time for wall-clock reference and each monotonic clock within its
+  own process.
+- The channel holds up to 512 child observations and the artifact retains the
+  latest 256 sequenced events. Coverage reports window evictions and a lower
+  bound on transport drops. A full buffer counts the dropped observation. A
+  producer skips the observation when the shared lock is busy and flags
+  uncounted loss, even if a later observation is delivered. This can happen
+  during successful runs. A worker that dies holding the lock can strand
+  unread observations and also set the flag. Receipt counts remain authoritative
+  when events are missing.
+- Telemetry publication follows terminal receipt publication. If a terminal
+  receipt cannot be confirmed, inspect the partial execution receipts. If
+  telemetry setup or publication fails, the CLI logs that the artifact is
+  unavailable. Telemetry is operator-local and opt-in.
 
 ## Admission and filesystem boundaries
 
@@ -187,5 +227,6 @@ functional. The following boundaries guided that implementation:
 
 The adaptive workflow owns the cooperative lock across calibration and final
 execution, using the same internal manifest runner as `run_local` without nested
-acquisition. Worker event transport, API job integration, SQLite migrations and
-React changes remain separate later stages.
+acquisition. Browser use will require a separate operational job admission and
+access contract with a registered dataset identity, plus a bounded live delivery
+contract that can reconcile telemetry gaps against authoritative receipts.

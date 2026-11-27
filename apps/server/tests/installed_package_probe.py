@@ -19,6 +19,7 @@ from PIL import Image
 import tachyron
 from tachyron.benchmarking.exports import read_experiment
 from tachyron.benchmarking.stats import summarize
+from tachyron.execution.storage import _array
 
 assert sys.flags.isolated
 assert tachyron.__file__ is not None
@@ -50,6 +51,31 @@ def command(name: str, *arguments: str, cwd: Path) -> dict[str, object]:
     )
     document: dict[str, object] = json.loads(result.stdout)
     return document
+
+
+def check_telemetry(root: Path, dataset: Path) -> None:
+    """Verify installed fixed-run telemetry and its receipt association."""
+    output = root / "telemetry"
+    result = command(
+        "tachyron-execute",
+        "run",
+        str(dataset),
+        "--output",
+        str(output),
+        "--workers",
+        "2",
+        "--width",
+        "2",
+        "--height",
+        "2",
+        "--telemetry",
+        cwd=root,
+    )
+    snapshot = command("tachyron-execute", "inspect-telemetry", str(output), cwd=root)
+    assert snapshot["run_id"] == result["execution_id"]
+    assert snapshot["counts"] == result["counts"]
+    assert len(_array(snapshot["observed_workers"])) == 1
+    assert snapshot["requested_worker_cap"] == 2
 
 
 def check_base(root: Path) -> None:
@@ -110,6 +136,7 @@ def check_base(root: Path) -> None:
         next(output.glob("*.png")).read_bytes()
         == next((root / "sequential").glob("*.png")).read_bytes()
     )
+    check_telemetry(root, dataset)
     adaptive = root / "adaptive"
     automatic = command(
         "tachyron-execute",

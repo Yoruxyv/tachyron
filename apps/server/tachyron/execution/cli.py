@@ -15,6 +15,7 @@ from tachyron.execution import (
     run_adaptive,
     run_local,
 )
+from tachyron.execution.telemetry_storage import inspect_telemetry
 from tachyron.processing import ProcessingError, TransformConfig
 from tachyron.processing.models import DEFAULT_TRANSFORM
 from tachyron.workers import WorkerExecutionError
@@ -36,6 +37,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         operation.add_argument("--width", type=int, default=DEFAULT_TRANSFORM.width)
         operation.add_argument("--height", type=int, default=DEFAULT_TRANSFORM.height)
     run.add_argument("--workers", type=int, choices=(1, 2, 4, 8), required=True)
+    run.add_argument(
+        "--telemetry",
+        action="store_true",
+        help="Write bounded worker and task observations to telemetry.json",
+    )
     adaptive.add_argument(
         "--fallback-workers", type=int, choices=(1, 2, 4, 8), default=1
     )
@@ -49,6 +55,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     inspect.add_argument("directory", type=Path)
     commands.add_parser(
+        "inspect-telemetry",
+        help="Validate and read the telemetry artifact for a local run",
+    ).add_argument("directory", type=Path)
+    commands.add_parser(
         "inspect-adaptive", help="Validate adaptive and linked execution receipts"
     ).add_argument("directory", type=Path)
     args = parser.parse_args(argv)
@@ -56,6 +66,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "inspect-adaptive":
             summary = inspect_adaptive(args.directory)
             state = summary["state"]
+        elif args.command == "inspect-telemetry":
+            summary = inspect_telemetry(args.directory)
+            state = summary["run_state"]
         else:
             if args.command == "inspect":
                 result = inspect_execution(args.directory)
@@ -79,6 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.output,
                     TransformConfig(args.width, args.height),
                     args.workers,
+                    telemetry=args.telemetry,
                 )
             summary = result.to_dict()
             summary.pop("items", None)
