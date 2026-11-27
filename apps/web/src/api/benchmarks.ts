@@ -37,7 +37,7 @@ const messages: Record<number, string> = {
  * @throws {ApiError} Transport, HTTP, JSON, or response validation fails.
  * @throws {Error} Caller cancellation propagates without becoming a transport error.
  */
-async function request<T>(
+export async function request<T>(
   url: string,
   parse: (body: unknown) => T,
   signal: AbortSignal,

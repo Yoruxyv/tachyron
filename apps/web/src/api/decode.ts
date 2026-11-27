@@ -11,18 +11,18 @@ import {
   type WorkerSummary,
 } from './contracts';
 
-const invalid = () => new Error('The API returned an invalid response.');
+export const invalid = () => new Error('The API returned an invalid response.');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function object(value: unknown): Record<string, unknown> {
+export function object(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw invalid();
   return value;
 }
 
-function string(value: unknown): string {
+export function string(value: unknown): string {
   if (typeof value !== 'string') throw invalid();
   return value;
 }
@@ -33,18 +33,21 @@ function number(value: unknown): number {
   return value;
 }
 
-function integer(value: unknown): number {
+export function integer(value: unknown): number {
   const result = number(value);
   if (!Number.isInteger(result)) throw invalid();
   return result;
 }
 
-function boolean(value: unknown): boolean {
+export function boolean(value: unknown): boolean {
   if (typeof value !== 'boolean') throw invalid();
   return value;
 }
 
-function nullable<T>(value: unknown, parse: (value: unknown) => T): T | null {
+export function nullable<T>(
+  value: unknown,
+  parse: (value: unknown) => T,
+): T | null {
   return value === null ? null : parse(value);
 }
 
@@ -53,7 +56,7 @@ export function array<T>(value: unknown, parse: (value: unknown) => T): T[] {
   return value.map((item: unknown) => parse(item));
 }
 
-function timestamp(value: unknown): string {
+export function timestamp(value: unknown): string {
   const result = string(value);
   if (!Number.isFinite(Date.parse(result))) throw invalid();
   return result;

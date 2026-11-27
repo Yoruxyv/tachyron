@@ -105,6 +105,32 @@ An abbreviated running manual response:
   copies a bounded view before serialization. A slow client can fall behind
   retention and recover its current state with a new snapshot.
 
+## Live Worker Monitor
+
+In **Experiments**, paste an existing operational run ID into the **Live Worker
+Monitor** and choose **Attach**. The monitor reads the secured snapshot endpoint
+with the last verified sequence. Use **Detach** to stop watching. Starting and
+cancelling operational runs remain explicit API or CLI actions.
+
+The monitor polls about every 800 ms while a run is active and keeps one request
+in flight. It marks delayed or failed reads as stale and retries transient
+failures with capped backoff. A terminal snapshot stops polling. An unavailable
+run keeps a manual retry action. When the server requests a resync, the monitor
+replaces its history with the returned window and uses the authoritative counts
+and worker states from that snapshot.
+
+The browser retains at most 256 events for the attached run and shows up to 10
+recent observations in each event filter. Worker cards use confirmed instances
+from the latest admitted pool. Calibration trial counts and outcomes remain
+separate from final processing. Worker transitions animate only on fresh,
+continuous observations, and respect reduced-motion settings. Use the poll
+coverage details to distinguish event-window eviction from worker transport gaps.
+
+The browser integration tests admit generated datasets through the real API.
+They use deliberate delays to make cancellation and reconnection reproducible and
+inject a real child process exit in the test server. The captures show the UI
+alongside actual spawned-run evidence. All inputs and workloads are synthetic.
+
 ## Local evidence
 
 Live snapshots are process-lifetime data. After eviction or a server restart,
