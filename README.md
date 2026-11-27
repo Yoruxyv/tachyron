@@ -112,8 +112,11 @@ repetitions per configuration, seeded interleaved order, and consistent batch
 timing including pool startup/shutdown and image I/O. JSON/CSV preserve raw runs
 and summaries. Failed experiments never become complete scaling comparisons.
 Use `--tiny` explicitly for a labeled one-repetition test; a tiny workload is not
-representative performance evidence. See [benchmark methodology](docs/benchmarking.md)
-for timing, baseline, CPU/RSS semantics, provenance, storage and cancellation limits.
+representative performance evidence. Experiments and the benchmark CLI also accept
+bounded custom worker comparisons. Open **View all worker results** from Overview
+or Compare to inspect every measured configuration. See [benchmark methodology](docs/benchmarking.md)
+for worker-count limits, timing, baseline, CPU/RSS semantics, provenance, storage
+and cancellation.
 
 ## Quality checks
 

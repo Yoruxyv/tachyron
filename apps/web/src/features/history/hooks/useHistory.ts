@@ -13,16 +13,24 @@ const failureText = (error: unknown) =>
  * Obsolete responses cannot replace the current selection. A newly terminal job
  * returns the list to its first page; subsequent pagination remains user-owned.
  * @param terminalId Newly terminal local job, or null while no job has finished.
+ * @param comparisonId Saved job explicitly pinned by the current comparison link.
  * @returns Independent list/detail loading and error states, selection, and pagination.
  */
-export function useHistory(terminalId: string | null) {
+export function useHistory(
+  terminalId: string | null,
+  comparisonId: string | null = null,
+) {
   const [verifiedAt, setVerifiedAt] = useState(0);
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [offset, setOffset] = useState(0);
-  const [selectedId, setSelectedId] = useState('');
+  const [selection, setSelection] = useState(comparisonId ?? '');
+  const selectedId = comparisonId ?? selection;
   const [detail, setDetail] = useState<HistoryDetail | null>(null);
   const [error, setError] = useState('');
-  const [detailError, setDetailError] = useState('');
+  const [detailFailure, setDetailFailure] = useState<{
+    id: string;
+    message: string;
+  } | null>(null);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -33,7 +41,7 @@ export function useHistory(terminalId: string | null) {
   useEffect(() => {
     if (terminalId) {
       setOffset(0);
-      setSelectedId(terminalId);
+      setSelection(terminalId);
     }
   }, [terminalId]);
 
@@ -50,10 +58,12 @@ export function useHistory(terminalId: string | null) {
         setItems(records);
         setVerifiedAt(performance.now());
         setError('');
-        setSelectedId((current) =>
-          records.some((record) => record.job.id === current)
-            ? current
-            : (records[0]?.job.id ?? ''),
+        setSelection(
+          (current) =>
+            comparisonId ??
+            (records.some((record) => record.job.id === current)
+              ? current
+              : (records[0]?.job.id ?? '')),
         );
       })
       .catch((failure: unknown) => {
@@ -66,11 +76,11 @@ export function useHistory(terminalId: string | null) {
         }
       });
     return () => controller.abort();
-  }, [offset, revision, terminalId]);
+  }, [offset, revision, terminalId, comparisonId]);
   useEffect(() => {
     if (previousSelection.current !== selectedId) {
       setDetail(null);
-      setDetailError('');
+      setDetailFailure(null);
       previousSelection.current = selectedId;
     }
     if (!selectedId) {
@@ -87,12 +97,13 @@ export function useHistory(terminalId: string | null) {
               ? previous
               : record,
           );
-          setDetailError('');
+          setDetailFailure(null);
           setVerifiedAt(performance.now());
         }
       })
       .catch((failure: unknown) => {
-        if (!controller.signal.aborted) setDetailError(failureText(failure));
+        if (!controller.signal.aborted)
+          setDetailFailure({ id: selectedId, message: failureText(failure) });
       })
       .finally(() => {
         if (!controller.signal.aborted) setDetailLoading(false);
@@ -104,10 +115,10 @@ export function useHistory(terminalId: string | null) {
     offset,
     setOffset,
     selectedId,
-    select: setSelectedId,
-    detail,
+    select: (id: string) => setSelection(id),
+    detail: detail?.job.id === selectedId ? detail : null,
     error,
-    detailError,
+    detailError: detailFailure?.id === selectedId ? detailFailure.message : '',
     loading,
     initialLoading: loading && settledOffset !== offset,
     detailLoading,

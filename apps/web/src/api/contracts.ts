@@ -1,5 +1,7 @@
 export const workers = [1, 2, 4, 8] as const;
 export type WorkerCount = (typeof workers)[number];
+export const maxCustomWorkerCount = 16;
+export const maxCustomConfigurations = 10;
 export type JobState =
   'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 export interface RunRequest {
@@ -11,6 +13,7 @@ export interface RunRequest {
   seed: number;
   sampling_interval: number;
   tiny: boolean;
+  worker_counts?: readonly number[];
 }
 export interface Dataset {
   display_name?: string | null;
@@ -49,7 +52,7 @@ export interface Distribution {
   sample_stddev: number | null;
 }
 export interface WorkerSummary {
-  workers: WorkerCount;
+  workers: number;
   measured_count: number;
   complete: boolean;
   elapsed: Distribution | null;
@@ -62,10 +65,11 @@ export interface WorkerSummary {
   memory_runs_available: number;
 }
 export interface Metrics {
-  schema_version: 1;
+  schema_version: 1 | 2;
   context_id: string;
   summaries: WorkerSummary[];
   experiment: {
+    experiment_id?: string;
     status: string;
     context: {
       tiny: boolean;

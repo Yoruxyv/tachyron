@@ -3,9 +3,25 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
-from tachyron.benchmarking.models import DEFAULT_CONFIG, BenchmarkConfig, Experiment
+from tachyron.benchmarking.models import (
+    DEFAULT_CONFIG,
+    MAX_CUSTOM_COUNTS,
+    MAX_CUSTOM_WORKERS,
+    BenchmarkConfig,
+    BenchmarkSchedule,
+    CustomBenchmarkConfig,
+    Experiment,
+)
 from tachyron.benchmarking.stats import WorkerSummary, summarize
 from tachyron.processing import TransformConfig
 from tachyron.processing.models import DEFAULT_TRANSFORM
@@ -15,8 +31,15 @@ JobState = Literal["QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
 TERMINAL = ("COMPLETED", "FAILED", "CANCELLED")
 
 
+CustomCount = Annotated[int, Field(strict=True, ge=1, le=MAX_CUSTOM_WORKERS)]
+CustomCounts = Annotated[
+    tuple[CustomCount, ...],
+    Field(strict=False, min_length=1, max_length=MAX_CUSTOM_COUNTS),
+]
+
+
 class RunRequest(BaseModel):
-    """One full 1/2/4/8-worker comparison using the CLI's fixed pipeline."""
+    """The fixed comparison or a bounded custom schedule over the same pipeline."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -30,6 +53,22 @@ class RunRequest(BaseModel):
         default=DEFAULT_CONFIG.sampling_interval, ge=0.01, le=10
     )
     tiny: bool = DEFAULT_CONFIG.tiny
+    worker_counts: CustomCounts | None = None
+
+    @field_validator("worker_counts")
+    @classmethod
+    def order_counts(cls, value: tuple[int, ...] | None) -> tuple[int, ...] | None:
+        """Canonicalize order while preserving duplicates for rejection."""
+        return tuple(sorted(value)) if value is not None else None
+
+    # Infer the return type to retain the typed RunRequest schema for input and output.
+    @model_serializer(mode="wrap")
+    def _serialize(self, serialize: SerializerFunctionWrapHandler):
+        """Keep the historical request wire shape when using the fixed schedule."""
+        data: dict[str, object] = serialize(self)
+        if self.worker_counts is None:
+            data.pop("worker_counts", None)
+        return data
 
     @model_validator(mode="after")
     def validate_schedule(self) -> "RunRequest":
@@ -37,8 +76,16 @@ class RunRequest(BaseModel):
         self.benchmark_config()
         return self
 
-    def benchmark_config(self) -> BenchmarkConfig:
+    def benchmark_config(self) -> BenchmarkSchedule:
         """Return the shared core configuration without changing its defaults."""
+        if self.worker_counts is not None:
+            return CustomBenchmarkConfig(
+                worker_counts=self.worker_counts,
+                repetitions=self.repetitions,
+                seed=self.seed,
+                sampling_interval=self.sampling_interval,
+                tiny=self.tiny,
+            )
         return BenchmarkConfig(
             self.repetitions, self.seed, self.sampling_interval, self.tiny
         )
@@ -87,7 +134,7 @@ class Job(BaseModel):
 class Metrics(BaseModel):
     """Raw core evidence and authoritative statistics, with unchanged units."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     context_id: str
     experiment: Experiment
     summaries: tuple[WorkerSummary, ...]
@@ -96,7 +143,8 @@ class Metrics(BaseModel):
     def validate_evidence(self) -> "Metrics":
         """Reject inconsistent stored contexts/statistics rather than serving them."""
         if (
-            self.context_id != self.experiment.context.digest
+            self.schema_version != self.experiment.config.schema_version
+            or self.context_id != self.experiment.context.digest
             or self.summaries != summarize(self.experiment, require_complete=False)
         ):
             raise ValueError("Stored metrics contradict their raw evidence")
@@ -106,6 +154,7 @@ class Metrics(BaseModel):
     def from_experiment(cls, experiment: Experiment) -> "Metrics":
         """Preserve incomplete evidence without promoting it to a comparison."""
         return cls(
+            schema_version=experiment.config.schema_version,
             context_id=experiment.context.digest,
             experiment=experiment,
             summaries=summarize(experiment, require_complete=False),

@@ -1,12 +1,15 @@
 import { useId, useState, type ReactNode, type SubmitEvent } from 'react';
 
 import {
+  maxCustomConfigurations,
+  maxCustomWorkerCount,
   workers,
   type Dataset,
   type RunRequest,
   type WorkerCount,
 } from '@/api/contracts';
 import Select from '@/components/Select';
+import { parseWorkerCounts } from '@/api/decode';
 import {
   ManualWorkers,
   ModeField,
@@ -71,8 +74,9 @@ interface Props {
   readonly datasetId: string;
   readonly selectDataset: (id: string) => void;
   readonly compact?: boolean;
-  readonly selectedWorker?: WorkerCount;
-  readonly selectWorker?: (count: WorkerCount) => void;
+  readonly selectedWorker?: number;
+  readonly inspectionCounts?: readonly number[];
+  readonly selectWorker?: (count: number) => void;
   readonly datasetError?: string;
   readonly retryDatasets?: () => void;
 }
@@ -85,6 +89,7 @@ export default function JobForm({
   selectDataset,
   compact = false,
   selectedWorker = 4,
+  inspectionCounts = workers,
   selectWorker,
   datasetError = '',
   retryDatasets,
@@ -98,6 +103,7 @@ export default function JobForm({
   const blocked = !benchmark && operation?.uncertain;
   const fieldsDisabled = disabled || Boolean(pending);
   const [workerCount, setWorkerCount] = useState<WorkerCount>(1);
+  const [customCounts, setCustomCounts] = useState('');
   const [width, setWidth] = useState(String(defaults.width));
   const [height, setHeight] = useState(String(defaults.height));
   const [repetitions, setRepetitions] = useState(String(defaults.repetitions));
@@ -105,10 +111,13 @@ export default function JobForm({
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(!compact);
   const selected = pending?.dataset_id ?? datasetId;
+  const shownCounts = pending
+    ? (pending.worker_counts?.join(', ') ?? '')
+    : customCounts;
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (disabled || blocked) return;
-    const request: RunRequest = pending ?? {
+    let request: RunRequest = pending ?? {
       ...defaults,
       dataset_id: selected,
       width: Number(width),
@@ -116,6 +125,20 @@ export default function JobForm({
       repetitions: Number(repetitions),
       tiny,
     };
+    if (benchmark && !compact && !pending && customCounts.trim()) {
+      try {
+        const values = customCounts
+          .split(',')
+          .map((value) => (/^\d+$/u.test(value.trim()) ? Number(value) : NaN));
+        request = { ...request, worker_counts: parseWorkerCounts(values) };
+      } catch {
+        setError(
+          `Enter up to ${maxCustomConfigurations} distinct worker counts from 1 to ${maxCustomWorkerCount}, separated by commas.`,
+        );
+        setSettingsOpen(true);
+        return;
+      }
+    }
     const dataset = datasets.find(
       (item) => item.dataset_id === request.dataset_id,
     );
@@ -217,7 +240,11 @@ export default function JobForm({
               />
             </div>
             {compact && selectWorker && (
-              <WorkerSelector value={selectedWorker} onChange={selectWorker} />
+              <WorkerSelector
+                value={selectedWorker}
+                counts={inspectionCounts}
+                onChange={selectWorker}
+              />
             )}
           </div>
           {mode === 'manual' && (
@@ -268,6 +295,27 @@ export default function JobForm({
               </div>
               {benchmark && (
                 <>
+                  {!compact && (
+                    <label>
+                      <span>Custom worker counts</span>
+                      <input
+                        type="text"
+                        value={shownCounts}
+                        aria-describedby={`${id}-custom-counts`}
+                        maxLength={60}
+                        placeholder="1, 2, 4, 8"
+                        onChange={(event) =>
+                          setCustomCounts(event.target.value)
+                        }
+                      />
+                      <small id={`${id}-custom-counts`} className="fine-print">
+                        Leave blank for 1, 2, 4 and 8. Enter up to{' '}
+                        {maxCustomConfigurations} distinct counts from 1 to{' '}
+                        {maxCustomWorkerCount}, separated by commas. Host limits
+                        apply.
+                      </small>
+                    </label>
+                  )}
                   <label>
                     <span>Measured repetitions per worker</span>
                     <input
@@ -307,7 +355,12 @@ export default function JobForm({
         {benchmark && (
           <p className={compact ? 'matrix-label sr-only' : 'matrix-label'}>
             Execution matrix{' '}
-            <span className="mono">{workers.join(' · ')} workers</span>
+            <span className="mono">
+              {pending || compact
+                ? (pending?.worker_counts ?? workers).join(' · ')
+                : shownCounts.trim() || workers.join(' · ')}{' '}
+              workers
+            </span>
           </p>
         )}
         {mode === 'adaptive' && (
@@ -331,9 +384,9 @@ export default function JobForm({
         </button>
         {benchmark && (
           <p className="fine-print">
-            {compact
+            {compact && !pending?.worker_counts
               ? `Measured locally · full ${workers.join('/')}-worker matrix.`
-              : `One warm-up, then measured repetitions per configuration. Resize + grayscale uses Lanczos. Seed ${pending?.seed ?? defaults.seed} · sample interval ${pending?.sampling_interval ?? defaults.sampling_interval} s. All four configurations run on this machine.`}
+              : `One local warm-up, then measured repetitions per configuration. Resize + grayscale uses Lanczos. Seed ${pending?.seed ?? defaults.seed} · sample interval ${pending?.sampling_interval ?? defaults.sampling_interval} s.`}
           </p>
         )}
       </form>

@@ -1,7 +1,7 @@
 # Benchmark methodology and export contract
 
 Tachyron compares real executions of one immutable image manifest and transform
-using 1, 2, 4, and 8 spawn workers. These measurements describe this workload on
+using 1, 2, 4, and 8 spawn workers by default. These measurements describe this workload on
 this machine. A tiny generated workload is a functional test, not representative
 performance evidence. More workers need not be faster.
 
@@ -19,7 +19,7 @@ overhead; the parent process CPU measurement includes that overhead.
 
 Each configuration gets exactly one recorded warm-up followed by five measured
 repetitions by default. All warm-ups precede measurements. A deterministic seeded
-permutation orders the four configurations separately in every round, sorting
+permutation orders the declared configurations separately in every round, sorting
 SHA-256 digests of `seed:round:workers`; actual execution order is exported.
 Warm-ups never enter statistics. Production repeat
 counts are 5–20. An explicit `--tiny` test workload permits one measured repetition
@@ -33,6 +33,32 @@ OS file lock permits one benchmark invocation per OS account and local temporary
 directory. This coordinates Tachyron benchmark commands, not other programs,
 accounts, or the separate processing CLI. OS locks release on process exit; the
 lock file is retained to avoid inode replacement races.
+
+## Custom worker comparisons
+
+Give `--worker-counts 1 3 5 9` to the CLI, or set the optional `worker_counts`
+array on a job request. Counts may be odd or exceed 8. Use 1–10 distinct integers
+from 1 to 16. The schedule orders counts numerically and runs at most 120 batches
+and 1,024 requested process starts, including warm-ups. Custom work also has
+cumulative limits of 120,000 image attempts and 8 billion output pixels. Existing
+per-batch dataset and output bounds still apply.
+
+Custom comparisons check available CPU capacity and estimated memory headroom
+before starting any pool. The largest sampled source dimensions, largest input file,
+and output transform inform the estimate. Incomplete input profiling uses the
+configured maximum image size as a conservative bound. Capacity can change during
+execution and the estimate reserves no memory. The requested schedule is rejected
+as a whole if it exceeds capacity. The fixed default schedule keeps its existing
+admission policy.
+
+Include worker count `1` to measure the process-pool baseline. A schedule such
+as `--worker-counts 3 9` is valid when admitted. It reports elapsed time,
+throughput and available resource measurements for 3 and 9 workers. Speedup and
+efficiency export as JSON `null` and empty CSV cells without a complete
+one-worker baseline. No other worker count supplies those metrics. A partial custom
+comparison retains statistics from successful measured rounds, with partial labels
+and no scaling ratios. Benchmark controls and artifacts report requested counts;
+the existing sampler does not establish how many workers executed tasks.
 
 ## CPU and memory observations
 
@@ -127,10 +153,13 @@ uv sync --locked --project apps/server --extra dev
 uv run --locked --project apps/server tachyron-benchmark run datasets/example --output results/benchmark --width 4 --height 3
 uv run --locked --project apps/server tachyron-benchmark compare results/benchmark/runs.json --output results/recomputed
 uv run --locked --project apps/server tachyron-benchmark run datasets/example --output results/tiny-benchmark --width 4 --height 3 --tiny
+uv run --locked --project apps/server tachyron-benchmark run datasets/example --output results/custom-benchmark --tiny --worker-counts 1 3 9
 ```
 
-The first command uses four warm-ups plus twenty measured executions. The last
-uses four warm-ups plus four measured executions and labels all evidence `tiny`.
+The default run uses four warm-ups plus twenty measured executions. The fixed
+`--tiny` example uses four warm-ups plus four measured executions. The custom
+example requires capacity for nine workers and runs six batches. Both tiny runs
+label their evidence `tiny`.
 `--repetitions`, `--seed`, and `--sampling-interval` override their validated
 defaults. All commands emit JSON on stdout. Exit codes are 0 for a complete
 comparison, 1 for image failures, 2 for invalid setup/comparison or catastrophic
@@ -160,7 +189,12 @@ if __name__ == "__main__":
     assert experiment.status == "success"
 ```
 
-## Schema version 1 and file lifecycle
+## Schema versions and file lifecycle
+
+Fixed-schedule exports retain schema v1, the existing fields, and four summary
+rows. A custom comparison uses v2 and includes `worker_counts` in its config.
+The timing, seed ordering, provenance, record accounting and units are shared.
+`compare` reads either version and recomputes only the recorded schedule.
 
 | File                        | Contract                                                                                                                                   |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -169,7 +203,7 @@ if __name__ == "__main__":
 | `batches/<run_id>/run.json` | Existing processing accounting, when batch execution completed.                                                                            |
 | `runs.json`                 | Authoritative immutable experiment evidence: schema/version, context and digest, configuration, plan, ordered records and explicit status. |
 | `runs.csv`                  | The same raw records flattened with step/telemetry fields and `context_json`; no data rows when no run was recorded.                       |
-| `workers.json`              | Context, status, four recomputed summaries and explicit units. Incomplete comparisons have null statistics.                                |
+| `workers.json`              | Context, status, recomputed summaries and explicit units. V1 incomplete comparisons keep null statistics.                                  |
 | `workers.csv`               | Flattened summaries with elapsed fields suffixed `_seconds` and resource/throughput fields as documented above.                            |
 | `experiment.json`           | Published last, with status, planned/recorded counts and SHA-256 of all four exports. Absence means export publication did not finish.     |
 

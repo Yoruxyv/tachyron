@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { isBenchmarkId } from '@/api/decode';
+
 export type View = 'overview' | 'experiments' | 'compare' | 'history' | 'api';
 export const views: {
   id: View;
@@ -22,7 +24,7 @@ export const views: {
   {
     id: 'compare',
     title: 'Scaling comparison',
-    subtitle: '1, 2, 4, and 8 worker efficiency & speedup analysis',
+    subtitle: 'Measured worker efficiency and speedup',
     label: 'Compare',
   },
   {
@@ -39,23 +41,38 @@ export const views: {
   },
 ];
 
-function currentView(): View {
-  return (
-    views.find((view) => `#${view.id}` === window.location.hash)?.id ??
-    'overview'
-  );
+export function comparisonHref(id: string, drilldown = false) {
+  const path = drilldown ? 'compare/workers' : 'compare';
+  return `#${path}?experiment=${encodeURIComponent(id)}`;
 }
+
+export function parseNavigation(hash: string) {
+  const [path, query] = hash.slice(1).split('?', 2);
+  const workerResults = path === 'compare/workers';
+  const view = workerResults
+    ? 'compare'
+    : (views.find((entry) => entry.id === path)?.id ?? 'overview');
+  const ids = new URLSearchParams(query).getAll('experiment');
+  const id = ids[0];
+  const comparisonId =
+    view === 'compare' && ids.length === 1 && id && isBenchmarkId(id)
+      ? id.toLowerCase()
+      : null;
+  return { view, workerResults, comparisonId };
+}
+
+const currentRoute = () => parseNavigation(window.location.hash);
 /** Keeps hash navigation in sync with browser history and releases its listener. */
 export function useNavigation() {
-  const [view, setView] = useState(currentView);
+  const [route, setRoute] = useState(currentRoute);
   useEffect(() => {
-    const changed = () => setView(currentView());
+    const changed = () => setRoute(currentRoute());
     window.addEventListener('hashchange', changed);
     return () => window.removeEventListener('hashchange', changed);
   }, []);
   function navigate(next: View) {
     window.location.hash = next;
-    setView(next);
+    setRoute(currentRoute());
   }
-  return { view, navigate };
+  return { ...route, navigate };
 }

@@ -1,0 +1,57 @@
+.worker-results,
+.worker-results-source,
+.worker-chart-scroll {
+  min-width: 0;
+}
+
+.worker-results-link {
+  align-self: start;
+  width: fit-content;
+  max-width: 100%;
+  color: #dbe5ef;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.worker-evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr));
+  gap: 12px 20px;
+  margin: 14px 0;
+  font-size: 12px;
+}
+
+.worker-evidence dt {
+  margin-bottom: 3px;
+  color: var(--secondary);
+}
+
+.worker-evidence dd {
+  overflow-wrap: anywhere;
+}
+
+.worker-results-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: end;
+}
+
+.worker-results-controls .form-field {
+  width: min(100%, 245px);
+}
+
+.worker-chart-scroll {
+  overflow-x: auto;
+}
+
+.matrix-label .mono,
+.history-worker-counts {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 540px) {
+  .worker-results .panel-heading {
+    flex-wrap: wrap;
+  }
+}

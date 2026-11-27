@@ -45,9 +45,10 @@ def prepare_dataset(root: Path) -> dict[str, Path]:
 
 
 def prepare_operational_datasets(root: Path) -> dict[str, Path]:
-    """Register generated inputs for the live monitor's real API runs."""
+    """Register generated inputs for real API and dashboard executions."""
     datasets: dict[str, Path] = {}
     for name, count in (
+        ("comparison-test", 16),
         ("monitor-manual", 224),
         ("monitor-adaptive", 640),
         ("monitor-worker-exit", 32),

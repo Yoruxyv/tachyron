@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { type HistoryItem, type WorkerCount } from '@/api/contracts';
+import { workers, type HistoryItem } from '@/api/contracts';
 import Select from '@/components/Select';
 
 import { timestamp } from '@/lib/format';
@@ -15,7 +15,7 @@ interface Props {
   readonly offset: number;
   readonly setOffset: (offset: number) => void;
   readonly compact?: boolean;
-  readonly worker?: WorkerCount;
+  readonly worker?: number;
   readonly error: string;
   readonly retry: () => void;
 }
@@ -135,7 +135,9 @@ export default function History({
                       {job.input_count} images · {timestamp(job.created_at)}
                     </small>
                   </span>
-                  <span className="mono">1/2/4/8W</span>
+                  <span className="history-worker-counts mono">
+                    {(job.request.worker_counts ?? workers).join('/')}W
+                  </span>
                   <span className={`state ${job.state.toLowerCase()}`}>
                     {job.state}
                   </span>

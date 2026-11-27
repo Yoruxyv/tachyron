@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   chartDefinitions,
   chartValues,
+  fastestCounts,
+  highlightCounts,
+  measuredCounts,
 } from '@/features/benchmarks/results/chartData';
 
 import { summaries } from './fixtures';
@@ -36,6 +39,33 @@ describe('chart transformations', () => {
         'cpu',
       ),
     ).toEqual([null, null, null, null]);
+  });
+
+  it('pins the observed baseline and selection, then ranks unrounded elapsed time', () => {
+    const rows = [9, 7, 5, 3, 2, 1].flatMap((workers, index) => {
+      const template = summaries[0];
+      if (!template?.elapsed) return [];
+      const mean = [10, 1.001, 1.002, 1.001, 3, 20][index] ?? 0;
+      return [{ ...template, workers, elapsed: { ...template.elapsed, mean } }];
+    });
+    expect(highlightCounts(rows, 9)).toEqual([1, 3, 7, 9]);
+    expect(fastestCounts(rows)).toEqual([3, 7]);
+    const withoutBaseline = rows.filter((row) => row.workers !== 1);
+    expect(highlightCounts(withoutBaseline, 16)).toEqual([2, 3, 5, 7]);
+  });
+
+  it('shows partial measured data only in the full comparison and never adds unmeasured counts', () => {
+    const rows = summaries.map((row) => ({
+      ...row,
+      complete: row.workers !== 4,
+      measured_count: row.workers === 8 ? 0 : row.measured_count,
+    }));
+    const axis = measuredCounts(rows);
+    expect(axis).toEqual([1, 2, 4]);
+    expect(highlightCounts(rows, 8)).toEqual(axis);
+    expect(chartValues(rows, 'elapsed', axis)).toEqual([8, 4, null]);
+    expect(chartValues(rows, 'elapsed', axis, true)).toEqual([8, 4, 2]);
+    expect(highlightCounts(summaries, 8)).toEqual([1, 2, 4, 8]);
   });
 
   it('labels all six metrics with the backend units and denominator', () => {

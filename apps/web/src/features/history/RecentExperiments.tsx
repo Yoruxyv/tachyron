@@ -1,4 +1,4 @@
-import type { HistoryItem, WorkerCount } from '@/api/contracts';
+import type { HistoryItem } from '@/api/contracts';
 
 import { metric } from '@/lib/format';
 
@@ -9,7 +9,7 @@ export default function RecentExperiments({
   select,
 }: {
   readonly items: readonly HistoryItem[];
-  readonly worker: WorkerCount;
+  readonly worker: number;
   readonly selectedId: string;
   readonly select: (id: string) => void;
 }) {
@@ -18,7 +18,7 @@ export default function RecentExperiments({
       <table className="recent-table">
         <caption className="sr-only">
           Saved experiments. Time and speedup show {worker}-worker measurements
-          from each independent 1/2/4/8-worker comparison.
+          from each saved comparison when available.
         </caption>
         <thead>
           <tr>

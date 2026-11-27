@@ -1,14 +1,20 @@
-import type { HistoryDetail, WorkerCount } from '@/api/contracts';
+import type { HistoryDetail } from '@/api/contracts';
 
+import {
+  inspectedCount,
+  measuredCounts,
+} from '@/features/benchmarks/results/chartData';
 import { metric, timestamp } from '@/lib/format';
 
 export default function HistoryInspector({
   detail,
-  selected,
+  selected: preferred,
 }: {
   readonly detail: HistoryDetail | null;
-  readonly selected: WorkerCount;
+  readonly selected: number;
 }) {
+  const counts = measuredCounts(detail?.result?.summaries ?? []);
+  const selected = inspectedCount(counts, preferred);
   const summary =
     detail?.job.state === 'COMPLETED' &&
     detail.result?.experiment.status === 'success'

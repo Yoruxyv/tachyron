@@ -10,6 +10,8 @@ import DatasetFolderPicker from '@/features/datasets/components/DatasetFolderPic
 export default function App() {
   const {
     view,
+    workerResults,
+    comparisonId,
     navigate,
     catalog,
     importer,
@@ -30,6 +32,7 @@ export default function App() {
   return (
     <Shell
       view={view}
+      workerResults={workerResults}
       navigate={navigate}
       active={confirmedActive}
       datasets={catalog.datasets}
@@ -63,6 +66,8 @@ export default function App() {
             />
           }
           view={view}
+          workerResults={workerResults}
+          comparisonId={comparisonId}
           navigate={navigate}
           datasets={catalog.datasets}
           datasetError={catalog.error}

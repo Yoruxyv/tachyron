@@ -15,9 +15,15 @@ import {
   type ScriptableContext,
 } from 'chart.js';
 
-import { workers, type WorkerCount, type WorkerSummary } from '@/api/contracts';
+import type { WorkerSummary } from '@/api/contracts';
 
-import { chartDefinitions, chartValues, type ChartMetric } from './chartData';
+import {
+  chartDefinitions,
+  chartValues,
+  highlightCounts,
+  measuredCounts,
+  type ChartMetric,
+} from './chartData';
 import ChartPanel from './ChartPanel';
 import { metric } from '@/lib/format';
 
@@ -34,23 +40,30 @@ Chart.register(
 );
 interface Props {
   readonly summaries: readonly WorkerSummary[];
-  readonly selected: WorkerCount;
-  readonly select: (count: WorkerCount) => void;
+  readonly selected: number;
+  readonly select: (count: number) => void;
   readonly overview?: boolean;
+  readonly resultsHref?: string | undefined;
 }
 /** Own one Chart.js instance; destroy it before replacing its data or selection. */
-function MetricChart({
+export function MetricChart({
   summaries,
   selected,
   select,
   kind,
   overview = false,
-}: Props & { readonly kind: ChartMetric }) {
+  full = false,
+  resultsHref,
+}: Props & { readonly kind: ChartMetric; readonly full?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const definition = chartDefinitions.find((item) => item.id === kind);
   useEffect(() => {
     if (!canvas.current || !definition) return;
-    const values = chartValues(summaries, kind);
+    const axis =
+      kind === 'elapsed' && !full
+        ? highlightCounts(summaries, selected)
+        : measuredCounts(summaries);
+    const values = chartValues(summaries, kind, axis, full);
     const datasets: ChartDataset<'bar' | 'line', (number | null)[]>[] = [
       {
         label: definition.unit,
@@ -58,7 +71,7 @@ function MetricChart({
         backgroundColor: (
           context: ScriptableContext<'bar'> | ScriptableContext<'line'>,
         ) => {
-          const chosen = workers[context.dataIndex] === selected;
+          const chosen = axis[context.dataIndex] === selected;
           const area = context.chart.chartArea;
           const barTop = context.chart.scales.y?.getPixelForValue(
             context.parsed?.y ?? 0,
@@ -83,18 +96,18 @@ function MetricChart({
         categoryPercentage: 0.75,
         barPercentage: 1,
         pointBorderColor: '#171a1f',
-        pointBackgroundColor: workers.map((count) =>
+        pointBackgroundColor: axis.map((count) =>
           count === selected ? '#f3f4f6' : '#858f9b',
         ),
         pointBorderWidth: 2,
-        pointRadius: workers.map((count) => (count === selected ? 6 : 4.5)),
+        pointRadius: axis.map((count) => (count === selected ? 6 : 4.5)),
       },
     ];
     if (kind === 'speedup')
       datasets.push({
         label: 'Theoretical ideal',
         type: 'line',
-        data: [...workers],
+        data: [...axis],
         borderColor: '#8e98a6',
         borderDash: [5, 5],
         pointStyle: 'triangle',
@@ -113,8 +126,7 @@ function MetricChart({
         chart.getDatasetMeta(0).data.forEach((bar, index) => {
           const value = values[index];
           if (value === null || value === undefined) return;
-          context.fillStyle =
-            workers[index] === selected ? '#20252b' : '#cdd3db';
+          context.fillStyle = axis[index] === selected ? '#20252b' : '#cdd3db';
           context.fillText(metric(value, 's', 1), bar.x, bar.y + 6);
         });
         context.restore();
@@ -123,7 +135,7 @@ function MetricChart({
     const chart = new Chart(canvas.current, {
       type: definition.type,
       data: {
-        labels: workers.map((count) => {
+        labels: axis.map((count) => {
           if (!overview || kind !== 'elapsed') return `${count}W`;
           return `${count} ${count === 1 ? 'worker' : 'workers'}`;
         }),
@@ -135,7 +147,7 @@ function MetricChart({
         maintainAspectRatio: false,
         animation: false,
         onClick: (_event, elements) => {
-          const count = workers[elements[0]?.index ?? -1];
+          const count = axis[elements[0]?.index ?? -1];
           if (count !== undefined) select(count);
         },
         plugins: {
@@ -147,7 +159,12 @@ function MetricChart({
               font: { family: 'Inter', size: 10 },
             },
           },
-          tooltip: { enabled: true },
+          tooltip: {
+            callbacks: {
+              label: (item) =>
+                `${item.dataset.label ?? definition.unit} · ${String(item.parsed.y)}`,
+            },
+          },
         },
         scales: {
           x: {
@@ -159,14 +176,16 @@ function MetricChart({
             },
             ticks: {
               color: (context) =>
-                workers[context.index] === selected ? '#f2f4f6' : '#a4acb6',
+                axis[context.index] === selected ? '#f2f4f6' : '#a4acb6',
               font: { family: 'Inter', size: 10.5, weight: 'normal' },
               padding: 8,
               maxRotation: 0,
             },
             title: {
               display: !overview,
-              text: 'Process-pool workers',
+              text: full
+                ? 'Requested process-pool workers'
+                : 'Process-pool workers',
               color: '#a4acb6',
             },
           },
@@ -213,7 +232,7 @@ function MetricChart({
       document.fonts?.removeEventListener('loadingdone', refreshFonts);
       chart.destroy();
     };
-  }, [summaries, selected, select, kind, definition, overview]);
+  }, [summaries, selected, select, kind, definition, overview, full]);
   if (!definition) return null;
   return (
     <ChartPanel
@@ -221,6 +240,8 @@ function MetricChart({
       selected={selected}
       summaries={summaries}
       overview={overview}
+      full={full}
+      resultsHref={resultsHref}
     >
       <div className="chart-canvas">
         <canvas

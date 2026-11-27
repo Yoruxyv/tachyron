@@ -13,7 +13,9 @@ from typing import cast
 from tachyron.benchmarking.models import (
     BenchmarkConfig,
     BenchmarkError,
+    BenchmarkSchedule,
     Context,
+    CustomBenchmarkConfig,
     Environment,
     Experiment,
     RunRecord,
@@ -51,7 +53,7 @@ def experiment_document(experiment: Experiment) -> dict[str, object]:
     """Serialize one fixed context with all raw repetitions, including warm-ups."""
     return {
         **asdict(experiment),
-        "schema_version": 1,
+        "schema_version": experiment.config.schema_version,
         "context_id": experiment.context.digest,
         "records": [record_document(record) for record in experiment.records],
     }
@@ -74,7 +76,7 @@ def _run_row(experiment: Experiment, record: RunRecord) -> dict[str, object]:
     document.pop("step")
     document.pop("telemetry")
     return {
-        "schema_version": 1,
+        "schema_version": experiment.config.schema_version,
         "experiment_id": experiment.experiment_id,
         "context_json": json.dumps(
             asdict(experiment.context), sort_keys=True, allow_nan=False
@@ -90,7 +92,7 @@ def _summary_row(experiment: Experiment, summary: WorkerSummary) -> dict[str, ob
     document.pop("elapsed")
     elapsed = summary.elapsed
     return {
-        "schema_version": 1,
+        "schema_version": experiment.config.schema_version,
         "experiment_id": experiment.experiment_id,
         "context_id": experiment.context.digest,
         "context_json": json.dumps(
@@ -138,7 +140,7 @@ def publish_exports(experiment: Experiment, directory: Path) -> None:
         ),
         "workers.json": encode_document(
             {
-                "schema_version": 1,
+                "schema_version": experiment.config.schema_version,
                 "experiment_id": experiment.experiment_id,
                 "context_id": experiment.context.digest,
                 "context": asdict(experiment.context),
@@ -165,7 +167,7 @@ def publish_exports(experiment: Experiment, directory: Path) -> None:
         "experiment.json",
         encode_document(
             {
-                "schema_version": 1,
+                "schema_version": experiment.config.schema_version,
                 "experiment_id": experiment.experiment_id,
                 "status": experiment.status,
                 "planned_runs": len(experiment.plan),
@@ -367,6 +369,28 @@ def _unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
+def _config(value: object, version: int) -> BenchmarkSchedule:
+    if version not in (1, 2):
+        raise BenchmarkError("Unsupported benchmark schema")
+    config_type = BenchmarkConfig if version == 1 else CustomBenchmarkConfig
+    data = _exact(value, {field.name for field in fields(config_type)})
+    default = BenchmarkConfig(
+        _integer(data["repetitions"]),
+        _integer(data["seed"]),
+        _number(data["sampling_interval"]),
+        _boolean(data["tiny"]),
+    )
+    if version == 1:
+        return default
+    return CustomBenchmarkConfig(
+        worker_counts=tuple(_integer(count) for count in _list(data["worker_counts"])),
+        repetitions=default.repetitions,
+        seed=default.seed,
+        sampling_interval=default.sampling_interval,
+        tiny=default.tiny,
+    )
+
+
 def read_experiment(path: Path) -> Experiment:
     """Load bounded regular-file JSON and reject mixed/inconsistent evidence.
 
@@ -391,20 +415,10 @@ def read_experiment(path: Path) -> Experiment:
             {field.name for field in fields(Experiment)}
             | {"schema_version", "context_id"},
         )
-        if _integer(data["schema_version"]) != 1:
-            raise BenchmarkError("Unsupported benchmark schema")
-        config = _exact(
-            data["config"], {field.name for field in fields(BenchmarkConfig)}
-        )
         experiment = Experiment(
             _string(data["experiment_id"]),
             _context(data["context"]),
-            BenchmarkConfig(
-                _integer(config["repetitions"]),
-                _integer(config["seed"]),
-                _number(config["sampling_interval"]),
-                _boolean(config["tiny"]),
-            ),
+            _config(data["config"], _integer(data["schema_version"])),
             tuple(_step(value) for value in _list(data["plan"])),
             tuple(_record(value) for value in _list(data["records"])),
             _string(data["status"]),

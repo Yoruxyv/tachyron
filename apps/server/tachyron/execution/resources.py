@@ -91,7 +91,11 @@ def _cgroup_limits(proc: Path, mount: Path) -> tuple[float | None, float | None]
 
 
 def observe_resources(
-    config: TransformConfig, pixels: int, compressed_bytes: int
+    config: TransformConfig,
+    pixels: int,
+    compressed_bytes: int,
+    *,
+    worker_counts: tuple[int, ...] = WORKERS,
 ) -> Resources:
     """Bound candidates using current affinity, visible quota and memory headroom.
 
@@ -134,7 +138,7 @@ def observe_resources(
     )
     candidates = tuple(
         worker
-        for worker in WORKERS
+        for worker in worker_counts
         if worker <= capacity and (budget is None or worker * estimate <= budget)
     )
     if budget is None or not capacities:

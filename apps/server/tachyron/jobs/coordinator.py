@@ -13,7 +13,12 @@ from uuid import uuid4
 import psutil
 
 from tachyron.benchmarking.exports import read_experiment
-from tachyron.benchmarking.models import WORKERS, BenchmarkError, RunRecord
+from tachyron.benchmarking.models import (
+    BenchmarkCapacityError,
+    BenchmarkError,
+    CustomBenchmarkConfig,
+    RunRecord,
+)
 from tachyron.benchmarking.runner import run_experiment
 from tachyron.execution.live import LiveSnapshot, LiveTelemetry
 from tachyron.imports.models import TERMINAL as IMPORT_TERMINAL
@@ -53,6 +58,20 @@ class AdmissionError(ValueError):
         super().__init__(code)
         self.code = code
         self.status = status
+
+
+def _benchmark_batch_count(request: RunRequest, manifest: DatasetManifest) -> int:
+    """Check output and comparison budgets before reserving the queue slot."""
+    input_count = len(manifest.entries)
+    transform = request.transform()
+    manifest.limits.check_output(transform, input_count)
+    schedule = request.benchmark_config()
+    if isinstance(schedule, CustomBenchmarkConfig):
+        try:
+            schedule.validate_budget(input_count, transform)
+        except BenchmarkError as error:
+            raise AdmissionError("comparison_budget_exceeded", 422) from error
+    return len(schedule.counts) * (request.repetitions + 1)
 
 
 class Coordinator:
@@ -160,7 +179,7 @@ class Coordinator:
             if self._operation is not None:
                 raise AdmissionError("workload_busy", 409)
             manifest = self.resolve_manifest(request.dataset_id)
-            manifest.limits.check_output(request.transform(), len(manifest.entries))
+            total_batches = _benchmark_batch_count(request, manifest)
             if len(self._queue) >= self.settings.queue_capacity:
                 raise AdmissionError("queue_full", 429)
             job = Job(
@@ -169,7 +188,7 @@ class Coordinator:
                 manifest_sha256=manifest.sha256,
                 input_count=len(manifest.entries),
                 created_at=stamp(),
-                total_batches=len(WORKERS) * (request.repetitions + 1),
+                total_batches=total_batches,
             )
             self._signals[job.id] = Event()
             self._queue.append(job.id)
@@ -446,6 +465,8 @@ class Coordinator:
                 on_record=lambda record: self._progress(job.id, record),
             )
             result = Metrics.from_experiment(experiment)
+        except BenchmarkCapacityError:
+            error_code = "worker_capacity_unavailable"
         except (ValueError, OSError, WorkerExecutionError, psutil.Error):
             error_code = "execution_failure"
             if owned:
