@@ -21,6 +21,11 @@ class _ExecutorState(Protocol):
     _executor_manager_thread: threading.Thread | None
 
 
+def owned_processes(pool: ProcessPoolExecutor) -> tuple[BaseProcess, ...]:
+    """Capture owned process handles before executor shutdown clears its registry."""
+    return tuple((cast("_ExecutorState", pool)._processes or {}).values())
+
+
 def check_startup_support(pool: ProcessPoolExecutor) -> None:
     """Reject an unknown executor layout before submitting or starting children."""
     if (
@@ -41,7 +46,7 @@ def reap_unmanaged_children(pool: ProcessPoolExecutor) -> None:
     manager = state._executor_manager_thread
     if manager is not None and manager.ident is not None:
         return
-    for process in tuple((state._processes or {}).values()):
+    for process in owned_processes(pool):
         if process.is_alive():
             process.kill()
         process.join()

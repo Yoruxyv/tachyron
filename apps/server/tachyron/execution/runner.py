@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Hans Valerie
 """Explicit operator-local admission and one fixed-N operational execution."""
 
+import logging
 import shutil
 from collections.abc import Callable
 from dataclasses import asdict
@@ -32,6 +33,9 @@ from tachyron.processing import (
 )
 from tachyron.processing.processor import publish_bytes
 from tachyron.workers.operational import PoolAccounting, run_accounted
+from tachyron.workers.telemetry import WorkerTelemetry
+
+logger = logging.getLogger(__name__)
 
 
 def _admit(manifest: DatasetManifest, output: Path, config: TransformConfig) -> None:
@@ -109,6 +113,7 @@ def run_local(
     *,
     limits: ResourceLimits = LOCAL_LIMITS,
     cancelled: Callable[[], bool] | None = None,
+    telemetry: bool = False,
 ) -> ExecutionResult:
     """Authorize a local root explicitly and process its frozen image workload once.
 
@@ -119,6 +124,7 @@ def run_local(
         workers: Explicit 1/2/4/8 spawn pool cap; no automatic selection.
         limits: Local safety policy, optionally narrowed for a smaller workload.
         cancelled: Stop submitting; drain work already dispatched before returning.
+        telemetry: Write a bounded, best-effort worker telemetry artifact.
 
     Returns:
         An independent operational result with full known/unstarted/unknown accounting.
@@ -135,7 +141,14 @@ def run_local(
     validate_limits(limits)
     with experiment_lock():
         manifest = build_manifest(root, limits)
-        return _run_manifest(manifest, output, config, workers, cancelled=cancelled)
+        return _run_manifest(
+            manifest,
+            output,
+            config,
+            workers,
+            cancelled=cancelled,
+            telemetry=telemetry,
+        )
 
 
 def _run_manifest(
@@ -145,6 +158,7 @@ def _run_manifest(
     workers: int,
     *,
     cancelled: Callable[[], bool] | None = None,
+    telemetry: bool = False,
 ) -> ExecutionResult:
     """Run a frozen manifest while the caller owns the cooperative workload lock."""
     _admit(manifest, output, config)
@@ -168,6 +182,12 @@ def _run_manifest(
         "environment": asdict(capture_environment()),
     }
     publish_bytes(directory, "admission.json", encode(admission))
+    observer = None
+    if telemetry:
+        try:
+            observer = WorkerTelemetry(execution_id, manifest.sha256, workers)
+        except (ImportError, OSError, RuntimeError):
+            logger.warning("Optional worker telemetry could not be initialized")
     start = perf_counter()
     accounting = run_accounted(
         manifest,
@@ -178,9 +198,30 @@ def _run_manifest(
         on_outcome=lambda index, outcome: publish_outcome(
             directory, execution_id, index, outcome
         ),
+        **({} if observer is None else {"telemetry": observer}),
     )
     result = _result(
         execution_id, manifest, workers, accounting, perf_counter() - start
     )
     publish_bytes(directory, "execution.json", encode(result.to_dict()))
+    if observer is not None:
+        _publish_telemetry(directory, observer, result)
     return result
+
+
+def _publish_telemetry(
+    directory: Path, observer: WorkerTelemetry, result: ExecutionResult
+) -> None:
+    for index, item in enumerate(result.items):
+        if item.state == "UNKNOWN":
+            observer.task("task_unknown", index)
+    snapshot = observer.terminal_snapshot(
+        result.state,
+        result.counts,
+        cancel_requested=result.cancel_requested is True,
+        error_code=result.error_code,
+    )
+    try:
+        publish_bytes(directory, "telemetry.json", encode(snapshot))
+    except OSError:
+        logger.warning("Optional worker telemetry could not be published")
