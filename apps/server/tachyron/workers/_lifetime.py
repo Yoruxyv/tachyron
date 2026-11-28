@@ -14,20 +14,17 @@ from multiprocessing.connection import wait
 if sys.platform == "win32":
     from tachyron.workers._windows_job import join_worker_job, worker_job
 
+    def _initialize_windows_worker(name: str, initialize: Callable[[], None]) -> None:
+        join_worker_job(name)
+        initialize()
+else:
 
-def _watch_parent(sentinel: int) -> None:
-    if sys.platform != "win32":
+    def _watch_parent(sentinel: int) -> None:
         wait([sentinel])
         # The live session leader keeps this process-group identity from being reused.
         os.killpg(os.getpgrp(), signal.SIGKILL)
 
-
-def _initialize_owned_worker(name: str | None, initialize: Callable[[], None]) -> None:
-    if sys.platform == "win32":
-        if name is None:
-            raise RuntimeError("Worker job is unavailable")
-        join_worker_job(name)
-    else:
+    def _initialize_posix_worker(initialize: Callable[[], None]) -> None:
         parent = multiprocessing.parent_process()
         if parent is None:
             raise RuntimeError("Spawned worker has no controller sentinel")
@@ -35,7 +32,7 @@ def _initialize_owned_worker(name: str | None, initialize: Callable[[], None]) -
         threading.Thread(
             target=_watch_parent, args=(parent.sentinel,), daemon=True
         ).start()
-    initialize()
+        initialize()
 
 
 @contextmanager
@@ -45,6 +42,6 @@ def worker_initializer(
     """Supply a spawn initializer. Keep this context open through pool shutdown."""
     if sys.platform == "win32":
         with worker_job() as name:
-            yield partial(_initialize_owned_worker, name, initialize)
+            yield partial(_initialize_windows_worker, name, initialize)
     else:
-        yield partial(_initialize_owned_worker, None, initialize)
+        yield partial(_initialize_posix_worker, initialize)
