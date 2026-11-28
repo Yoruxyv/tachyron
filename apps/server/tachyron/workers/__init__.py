@@ -7,6 +7,7 @@ import os
 import signal
 import threading
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
+from contextlib import ExitStack
 from pathlib import Path
 
 from tachyron.processing import (
@@ -18,6 +19,7 @@ from tachyron.processing import (
     prepare_run,
     process_image,
 )
+from tachyron.workers._lifetime import worker_initializer
 from tachyron.workers._startup import (
     check_startup_support,
     defer_startup_interrupt,
@@ -98,19 +100,24 @@ def _execute(
     manifest: DatasetManifest, directory: Path, config: TransformConfig, workers: int
 ) -> tuple[ImageOutcome, ...]:
     pool: ProcessPoolExecutor | None = None
-    try:
-        with defer_startup_interrupt():
-            pool = ProcessPoolExecutor(
-                max_workers=workers,
-                mp_context=multiprocessing.get_context("spawn"),
-                initializer=_initialize_worker,
-            )
-            check_startup_support(pool)
-        return _collect(pool, manifest, directory, config, 2 * workers)
-    finally:
-        if pool is not None:
-            _shutdown_pool(pool)
-        _cleanup_worker_temps(directory)
+    with ExitStack() as lifetime:
+        try:
+            with defer_startup_interrupt():
+                initialize = lifetime.enter_context(
+                    worker_initializer(_initialize_worker)
+                )
+                pool = ProcessPoolExecutor(
+                    max_workers=workers,
+                    mp_context=multiprocessing.get_context("spawn"),
+                    initializer=initialize,
+                )
+                check_startup_support(pool)
+            return _collect(pool, manifest, directory, config, 2 * workers)
+        finally:
+            if pool is not None:
+                _shutdown_pool(pool)
+            lifetime.close()
+            _cleanup_worker_temps(directory)
 
 
 def run_parallel(

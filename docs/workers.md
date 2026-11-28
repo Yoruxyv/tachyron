@@ -146,12 +146,22 @@ owned run directory, after children have stopped. It retains complete PNGs and
 other files. OS-denied cleanup logs a warning naming the leftover temporary file.
 Do not write unrelated files into another active run's output directory.
 
-Python 3.11 offers no supported per-task hard-kill/deadline API here. A hung native
-decoder or blocked filesystem operation can delay shutdown indefinitely. Forceful
-parent termination, power loss, or shutdown failure cannot guarantee cleanup;
-an incomplete directory must not be treated as a completed run. Startup recovery
-does not impose hard cancellation deadlines on initialized pools or add a watchdog
-service.
+Cooperative shutdown has no per-task hard deadline. A hung native decoder or
+blocked filesystem operation can delay it indefinitely. Forced controller
+termination can leave a run without a terminal receipt. An incomplete directory
+cannot establish completion.
+
+On Windows, each pool has a private Job Object. Workers enroll before taking
+tasks, and their ordinary child processes inherit that membership. Closing the
+last job handle terminates the enrolled tree, including when the controller is
+forcibly terminated. A host that blocks job enrollment fails the worker
+initializer. [Windows Job Objects](https://learn.microsoft.com/windows/win32/procthread/job-objects)
+
+On POSIX, each worker creates a private process group and watches the spawn
+controller's liveness sentinel. When that sentinel signals controller exit, the
+watcher kills only its own group. This covers descendants still in that group
+while the watcher is alive and can run. Workers that die first, descendants
+that leave the group, and watchers blocked by native code can limit cleanup.
 
 These behaviors follow Python's [executor shutdown contract](https://docs.python.org/3.11/library/concurrent.futures.html#concurrent.futures.Executor.shutdown)
 and [spawn guidance](https://docs.python.org/3.11/library/multiprocessing.html#the-spawn-and-forkserver-start-methods).

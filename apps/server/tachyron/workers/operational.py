@@ -5,6 +5,7 @@ import hashlib
 import multiprocessing
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
+from contextlib import ExitStack
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -17,6 +18,7 @@ from tachyron.workers import (
     _initialize_worker,
     _shutdown_pool,
 )
+from tachyron.workers._lifetime import worker_initializer
 from tachyron.workers._startup import (
     check_startup_support,
     defer_startup_interrupt,
@@ -235,43 +237,46 @@ def run_accounted(
     state = _Collection(manifest, directory, config, on_outcome, telemetry)
     pool: ProcessPoolExecutor | None = None
     started_dispatch = False
-    try:
-        if cancelled():
-            state.request_cancel()
-            return state.snapshot()
-        with defer_startup_interrupt():
-            pool = ProcessPoolExecutor(
-                max_workers=workers,
-                mp_context=multiprocessing.get_context("spawn"),
-                initializer=(
-                    _initialize_worker
-                    if telemetry is None
-                    else partial(
-                        initialize_observed_worker, telemetry.channel, telemetry.run_id
-                    )
-                ),
+    with ExitStack() as lifetime:
+        try:
+            if cancelled():
+                state.request_cancel()
+                return state.snapshot()
+            initialize = (
+                _initialize_worker
+                if telemetry is None
+                else partial(
+                    initialize_observed_worker, telemetry.channel, telemetry.run_id
+                )
             )
-            check_startup_support(pool)
-        started_dispatch = True
-        state.execute(pool, 2 * workers, cancelled)
-    except KeyboardInterrupt:
-        state.request_cancel()
-    except (OSError, RuntimeError, ValueError):
-        state.error_code = state.error_code or "worker_failure"
-    finally:
-        if pool is not None:
+            with defer_startup_interrupt():
+                pool = ProcessPoolExecutor(
+                    max_workers=workers,
+                    mp_context=multiprocessing.get_context("spawn"),
+                    initializer=lifetime.enter_context(worker_initializer(initialize)),
+                )
+                check_startup_support(pool)
+            started_dispatch = True
+            state.execute(pool, 2 * workers, cancelled)
+        except KeyboardInterrupt:
+            state.request_cancel()
+        except (OSError, RuntimeError, ValueError):
+            state.error_code = state.error_code or "worker_failure"
+        finally:
             processes = (
                 owned_processes(pool)
-                if telemetry is not None and started_dispatch
+                if pool is not None and telemetry is not None and started_dispatch
                 else ()
             )
             try:
-                _shutdown_pool(pool)
+                if pool is not None:
+                    _shutdown_pool(pool)
+                lifetime.close()
             except BaseException as error:
                 raise WorkerExecutionError(
                     "Operational pool shutdown is unconfirmed; inspect partial receipts"
                 ) from error
-            if telemetry is not None:
+            if telemetry is not None and pool is not None:
                 telemetry.pool_stopped(processes)
-        _cleanup_worker_temps(directory)
+            _cleanup_worker_temps(directory)
     return state.snapshot()
