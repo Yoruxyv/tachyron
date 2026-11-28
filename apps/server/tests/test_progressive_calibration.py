@@ -16,10 +16,12 @@ from tachyron.execution import (
     adaptive,
     inspect_adaptive,
     run_adaptive,
+    sampling,
 )
 from tachyron.execution.calibration import (
     METHOD,
     METHOD_V3,
+    METHOD_V4,
     WORKERS,
     candidate_schedule,
     select_supported_workers,
@@ -32,9 +34,15 @@ from tachyron.execution.calibration import (
 from tachyron.execution.models import ExecutionResult
 from tachyron.execution.resources import Resources
 from tachyron.execution.storage import encode
-from tachyron.processing import DatasetManifest, ProcessingError, TransformConfig
+from tachyron.processing import (
+    DatasetManifest,
+    ProcessingError,
+    TransformConfig,
+    build_manifest,
+)
 from tachyron.workers import operational
 from tests import test_adaptive_execution
+from tests.benchmark_helpers import make_manifest
 from tests.test_adaptive_execution import Clock
 from tests.test_adaptive_sampling import image_dataset
 from tests.test_calibration import trials
@@ -109,13 +117,31 @@ def test_progressive_selection_preserves_evidence_thresholds(failure: str) -> No
     assert result.workers == 1
 
 
+@pytest.mark.parametrize(
+    ("files", "overflow", "expected"),
+    [(1151, True, 32), (1152, True, 64), (1152, False, 32)],
+)
+def test_automatic_samples_stay_within_profile_and_trial_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    files: int,
+    overflow: bool,
+    expected: int,
+) -> None:
+    seed = make_manifest(tmp_path / "input")
+    manifest = replace(seed, entries=(seed.entries[0],) * files)
+    monkeypatch.setattr(adaptive, "PROFILE_BYTES", manifest.total_bytes - int(overflow))
+
+    assert adaptive._default_policy(manifest).sample_files == expected
+
+
 @pytest.mark.parametrize("fallback", [1, 2])
 def test_small_work_bypasses_profiling_and_trials(
     tmp_path: Path, controlled: Clock, monkeypatch: pytest.MonkeyPatch, fallback: int
 ) -> None:
     root = image_dataset(tmp_path / "input", 96)
     profile = Mock(side_effect=AssertionError("Preflight bypass must not profile"))
-    monkeypatch.setattr(adaptive, "profile_images", profile)
+    monkeypatch.setattr(adaptive, "profile_adaptive_images", profile)
     result = run_adaptive(
         root,
         tmp_path / "output",
@@ -131,7 +157,7 @@ def test_small_work_bypasses_profiling_and_trials(
     assert result.execution.counts["succeeded"] == 96
     assert controlled.trial_count == 0
     profile.assert_not_called()
-    assert inspect_adaptive(tmp_path / "output")["mode"] == "adaptive-calibration-v4"
+    assert inspect_adaptive(tmp_path / "output")["mode"] == "adaptive-calibration-v5"
 
 
 def four_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,6 +170,34 @@ def four_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
         return replace(observe(config, pixels, compressed_bytes), candidates=WORKERS)
 
     monkeypatch.setattr(adaptive, "observe_resources", current)
+
+
+def test_predominantly_unique_overflow_runs_the_explicit_fallback(
+    tmp_path: Path, controlled: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = image_dataset(tmp_path / "input", 288)
+    (root / "copy.jpg").write_bytes((root / "image-0000.jpg").read_bytes())
+    manifest = build_manifest(root)
+    unique = {(entry.size_bytes, entry.sha256) for entry in manifest.entries}
+    assert 260 < len(unique) < len(manifest.entries)
+    monkeypatch.setattr(sampling, "PROFILE_BYTES", sum(size for size, _ in unique) - 1)
+    read = Mock(side_effect=AssertionError("Over-budget profiles must not read input"))
+    monkeypatch.setattr(sampling, "read_input", read)
+
+    output = tmp_path / "output"
+    policy = CalibrationPolicy(sample_files=16, fallback_workers=2)
+    result = run_adaptive(root, output, TransformConfig(2, 2), policy=policy)
+
+    assert result.calibration.selection.status == "INCONCLUSIVE"
+    assert result.calibration.selection.reason == "profile_byte_budget"
+    assert result.calibration.stop_reason == "profile_byte_budget"
+    assert not result.calibration.sample_paths
+    assert controlled.trial_count == 0
+    read.assert_not_called()
+    assert result.execution is not None
+    assert result.execution.workers == policy.fallback_workers
+    assert result.execution.counts["succeeded"] == len(manifest.entries)
+    assert inspect_adaptive(output)["state"] == "COMPLETED"
 
 
 @pytest.mark.parametrize(
@@ -292,7 +346,7 @@ def test_progressive_receipts_reject_semantic_corruption_even_with_valid_hash(
         inspect_adaptive(directory)
 
 
-@pytest.mark.parametrize("version", [2, 3])
+@pytest.mark.parametrize("version", [2, 3, 4])
 def test_legacy_schemas_remain_inspectable(
     tmp_path: Path, controlled: Clock, version: int
 ) -> None:
@@ -302,7 +356,7 @@ def test_legacy_schemas_remain_inspectable(
     admission_path = directory / "adaptive-admission.json"
     admission = json.loads(admission_path.read_text())
     admission["mode"] = f"adaptive-calibration-v{version}"
-    admission["method"] = METHOD if version == 2 else METHOD_V3
+    admission["method"] = {2: METHOD, 3: METHOD_V3, 4: METHOD_V4}[version]
     if version == 2:
         del admission["policy"]["max_trial_images"]
     admission_path.write_bytes(encode(admission))
@@ -362,14 +416,14 @@ def test_fractional_cap_cannot_strand_a_valid_baseline_without_a_comparison(
 ) -> None:
     four_candidates(monkeypatch)
     root = image_dataset(tmp_path / "input", 512)
-    profile = adaptive.profile_images
+    profile = adaptive.profile_adaptive_images
 
     def costly_profile(manifest: DatasetManifest, stopped: Callable[[], bool]):
         result = profile(manifest, stopped)
         controlled.now += 10
         return result
 
-    monkeypatch.setattr(adaptive, "profile_images", costly_profile)
+    monkeypatch.setattr(adaptive, "profile_adaptive_images", costly_profile)
     result = run_adaptive(
         root,
         tmp_path / "output",

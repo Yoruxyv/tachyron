@@ -152,7 +152,7 @@ def check_base(root: Path) -> None:
         cwd=root,
     )
     assert automatic["state"] == "COMPLETED"
-    assert automatic["mode"] == "adaptive-calibration-v4"
+    assert automatic["mode"] == "adaptive-calibration-v5"
     assert (
         command("tachyron-execute", "inspect-adaptive", str(adaptive), cwd=root)[
             "state"

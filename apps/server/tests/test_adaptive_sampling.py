@@ -13,14 +13,17 @@ from tachyron.execution import (
     CalibrationPolicy,
     adaptive_storage,
     resources,
+    sampling,
 )
 from tachyron.execution.sampling import (
     ImageProfile,
     choose_sample,
+    profile_adaptive_images,
     profile_images,
     sample_manifest,
 )
 from tachyron.processing import TransformConfig, build_manifest
+from tachyron.processing.processor import process_image
 from tests.benchmark_helpers import example_experiment, make_manifest
 
 
@@ -35,12 +38,28 @@ def image_dataset(root: Path, count: int = 96) -> Path:
     return root
 
 
+@pytest.mark.parametrize("overflow", [False, True])
 def test_seeded_sampling_covers_observed_format_and_pixel_strata(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overflow: bool
 ) -> None:
-    manifest = build_manifest(image_dataset(tmp_path / "input"), LOCAL_LIMITS)
-    profiles, reason = profile_images(manifest, lambda: False)
+    root = image_dataset(tmp_path / "input")
+    if overflow:
+        (root / "copy.jpg").write_bytes((root / "image-0000.jpg").read_bytes())
+    manifest = build_manifest(root, LOCAL_LIMITS)
+    expected, reason = profile_images(manifest, lambda: False)
     assert reason is None
+    if overflow:
+        unique_bytes = sum(
+            size
+            for size, _ in {
+                (entry.size_bytes, entry.sha256) for entry in manifest.entries
+            }
+        )
+        monkeypatch.setattr(sampling, "PROFILE_BYTES", unique_bytes)
+        assert manifest.total_bytes > unique_bytes
+    profiles, reason = profile_adaptive_images(manifest, lambda: False)
+    assert reason is None
+    assert profiles == expected
     policy = CalibrationPolicy()
     entries, reason = choose_sample(profiles, policy)
     assert reason is None
@@ -77,6 +96,66 @@ def test_profile_stopping_invalid_input_and_byte_budget_are_explicit(
         ),
     )
     assert profile_images(oversized, lambda: False)[1] == "profile_byte_budget"
+
+
+def test_overflow_profiles_reuse_frozen_content_but_keep_each_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = make_manifest(tmp_path / "input")
+    duplicate = original.root / "copy.png"
+    duplicate.write_bytes((original.root / "0.png").read_bytes())
+    manifest = build_manifest(original.root)
+    monkeypatch.setattr(sampling, "PROFILE_BYTES", original.total_bytes)
+    read = Mock(wraps=sampling.read_input)
+    monkeypatch.setattr(sampling, "read_input", read)
+
+    assert profile_images(manifest, lambda: False) == ((), "profile_byte_budget")
+    profiles, reason = profile_adaptive_images(manifest, lambda: False)
+    assert reason is None
+    assert tuple(profile.entry for profile in profiles) == manifest.entries
+    assert read.call_count == len(original.entries)
+    assert profiles[0].category == profiles[-1].category == ("PNG", 4)
+
+    duplicate.write_bytes(b"changed after admission")
+    assert profile_adaptive_images(manifest, lambda: False) == (profiles, None)
+    output = tmp_path / "output"
+    output.mkdir()
+    outcome = process_image(
+        manifest.root,
+        profiles[-1].entry,
+        output,
+        TransformConfig(2, 2),
+        manifest.limits,
+    )
+    assert outcome.error_code == "input_changed"
+    assert not list(output.iterdir())
+
+
+def test_overflow_profiling_retains_budget_and_identity_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = make_manifest(tmp_path / "input")
+    monkeypatch.setattr(sampling, "PROFILE_BYTES", original.total_bytes - 1)
+    assert profile_adaptive_images(original, lambda: False) == (
+        (),
+        "profile_byte_budget",
+    )
+
+    (original.root / "copy.png").write_bytes((original.root / "0.png").read_bytes())
+    repeated = build_manifest(original.root)
+    monkeypatch.setattr(sampling, "PROFILE_BYTES", original.total_bytes)
+    narrowed = replace(repeated, limits=replace(repeated.limits, max_pixels=11))
+    assert profile_adaptive_images(narrowed, lambda: False) == (
+        (),
+        "profile_resource_limit",
+    )
+    stopped = Mock(side_effect=[False, True])
+    assert profile_adaptive_images(repeated, stopped) == ((), "calibration_stopped")
+    (original.root / "0.png").write_bytes(b"changed representative")
+    assert profile_adaptive_images(repeated, lambda: False) == (
+        (),
+        "invalid_profile_input",
+    )
 
 
 def test_memory_and_affinity_bound_candidates_without_choosing_performance(

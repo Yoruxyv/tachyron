@@ -315,6 +315,14 @@ METHOD_V4: dict[str, object] = {
 }
 
 
+ADAPTIVE_MODE = "adaptive-calibration-v5"
+METHOD_V5: dict[str, object] = {
+    **METHOD_V4,
+    "header_profiling": "per-path-with-distinct-identity-overflow-v1",
+    "automatic_sample_sizes": "32-or-64-for-overflow-within-trial-budget-v1",
+}
+
+
 def select_supported_workers(
     trials: tuple[Trial, ...],
     count: int,

@@ -5,7 +5,7 @@ import hashlib
 import io
 import warnings
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PIL import Image
 
@@ -74,6 +74,34 @@ def profile_images(
     except (OSError, ValueError, SyntaxError, Warning, Image.DecompressionBombError):
         return tuple(profiles), "invalid_profile_input"
     return tuple(profiles), None
+
+
+def profile_adaptive_images(
+    manifest: DatasetManifest, stopped: Callable[[], bool]
+) -> tuple[tuple[ImageProfile, ...], str | None]:
+    """Profile repeated content when rereading every path would exceed the cap.
+
+    Each distinct frozen identity needs a verified header. Keep every path in
+    the population and leave per-path identity checks to trials and final work.
+    """
+    if manifest.total_bytes <= PROFILE_BYTES:
+        return profile_images(manifest, stopped)
+
+    representatives: dict[tuple[int, str], ManifestEntry] = {}
+    for entry in manifest.entries:
+        representatives.setdefault((entry.size_bytes, entry.sha256), entry)
+    unique = sample_manifest(manifest, tuple(representatives.values()))
+    profiles, reason = profile_images(unique, stopped)
+    if reason is not None:
+        return (), reason
+
+    observed = {
+        (value.entry.size_bytes, value.entry.sha256): value for value in profiles
+    }
+    return tuple(
+        replace(observed[(entry.size_bytes, entry.sha256)], entry=entry)
+        for entry in manifest.entries
+    ), None
 
 
 def choose_sample(
