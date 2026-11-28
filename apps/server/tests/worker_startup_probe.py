@@ -12,7 +12,9 @@ import os
 import signal
 import sys
 import threading
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
 from pathlib import Path
@@ -80,12 +82,11 @@ def main() -> None:
     manifest = build_manifest(input_dir)
 
     def factory(**options: object) -> ProcessPoolExecutor:
-        # Only the initializer is replaced; task execution and spawn are real.
+        # Keep the production lifetime initializer around the probe's readiness hook.
         pool = ProcessPoolExecutor(
             max_workers=1,
             mp_context=context,
-            initializer=initialize_probe,
-            initargs=(ready,),
+            initializer=cast("Callable[[], None]", options["initializer"]),
         )
         holder.append(pool)
         return pool
@@ -129,7 +130,13 @@ def main() -> None:
             )
         else:
             target = patch.object(threading.Thread, "start", fail_manager_start)
-        with patch.object(workers, "ProcessPoolExecutor", factory), target:
+        with (
+            patch.object(workers, "ProcessPoolExecutor", factory),
+            patch.object(
+                workers, "_initialize_worker", partial(initialize_probe, ready)
+            ),
+            target,
+        ):
             try:
                 workers.run_parallel(
                     manifest, root / "failed-run", TransformConfig(2, 2), 1

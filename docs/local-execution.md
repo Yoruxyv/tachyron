@@ -169,10 +169,10 @@ admission, during final publication or an unconfirmed shutdown may leave no
 terminal receipt. A second process can inspect retained evidence, but cannot
 conclude from missing terminal evidence that the owner has stopped running.
 
-Forceful termination of the controller can leave its workers running, as
-observed on Windows. Verify that the processes belonging to the interrupted
-run have exited before cleaning its output directory. Use the retained receipts
-to distinguish acknowledged results from unknown outcomes.
+Worker pools use operating-system-specific [controller-death protection](workers.md).
+Verify that the processes belonging to an interrupted run have exited before
+cleaning its output directory. Use retained receipts to distinguish acknowledged
+results from unknown outcomes.
 
 ## Receipt ownership and compatibility
 
