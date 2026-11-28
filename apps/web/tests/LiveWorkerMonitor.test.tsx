@@ -73,6 +73,7 @@ describe('live worker monitor presentation', () => {
           }),
           observation(3, {
             type: 'worker_ready',
+            origin: 'child',
             phase: 'calibration',
             execution_id: poolId,
             instance_id: instanceId,
@@ -98,6 +99,12 @@ describe('live worker monitor presentation', () => {
     const pool = await screen.findByRole('region', { name: 'Worker pool' });
     expect(pool).toHaveTextContent('1 confirmed · 2 requested');
     expect(pool).toHaveTextContent('PID 12 Ready');
+    const lifecycle = within(pool).getByRole('list', {
+      name: 'Retained lifecycle observations',
+    });
+    expect(lifecycle).toHaveTextContent('Startup event unavailable');
+    expect(lifecycle).toHaveTextContent('Readiness observed');
+    expect(lifecycle).toHaveTextContent('Exit event unavailable');
     expect(pool).not.toHaveTextContent('Last task observation');
     expect(pool).toHaveTextContent('Current assignment may be unknown');
     expect(
@@ -114,6 +121,12 @@ describe('live worker monitor presentation', () => {
     expect(within(events).getByText('Worker readiness observed')).toBeVisible();
     expect(
       within(events).queryByText('Task submitted'),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('combobox', { name: 'Show' }));
+    await user.click(screen.getByRole('option', { name: 'Task observations' }));
+    expect(within(events).getByText('Task submitted')).toBeVisible();
+    expect(
+      within(events).queryByText('Worker readiness observed'),
     ).not.toBeInTheDocument();
   });
 

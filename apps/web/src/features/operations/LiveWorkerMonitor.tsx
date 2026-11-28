@@ -67,7 +67,11 @@ function AttachedRun({
       )}
       {message && <output className="monitor-notice">{message}</output>}
       {snapshot && (
-        <OperationDetails snapshot={snapshot} animateAfter={animateAfter} />
+        <OperationDetails
+          snapshot={snapshot}
+          animateAfter={animateAfter}
+          stale={connection === 'stale' || connection === 'unavailable'}
+        />
       )}
     </>
   );

@@ -141,11 +141,19 @@ replaces its history with the returned window and uses the authoritative counts
 and worker states from that snapshot.
 
 The browser retains at most 256 events for the attached run and shows up to 10
-recent observations in each event filter. Worker cards use confirmed instances
-from the latest admitted pool. Calibration trial counts and outcomes remain
-separate from final processing. Worker transitions animate only on fresh,
-continuous observations, and respect reduced-motion settings. Use the poll
-coverage details to distinguish event-window eviction from worker transport gaps.
+recent observations in each event filter. **Execution flow** shows up to four
+recently observed tasks from the latest admitted pool. Dispatch, confirmed
+worker starts, and outcomes have separate columns. A received result can appear
+before receipt acknowledgement. A missing cell means the retained events do not
+establish that stage. The row order follows observation receipt and can change
+as new evidence arrives.
+
+Worker cards show confirmed instances from the same pool. Calibration trial
+counts and outcomes remain separate from final processing. Worker and task
+highlights run only for observations received during continuous polling and
+respect reduced-motion settings. Reconnects and resyncs refresh the display
+without replaying transitions. Use the coverage details to distinguish
+event-window eviction from worker transport gaps.
 
 ## Inspect persisted receipts
 

@@ -107,12 +107,20 @@ test('observes a manual run and reconnects after the real event window rolls ove
     ),
   ).toBe(true);
   expect(running.pool?.observed_workers.length).toBeGreaterThan(0);
+  const flow = monitor.getByRole('region', { name: 'Execution flow' });
+  await expect(flow.getByText('Start observed').first()).toBeVisible();
   const pulse = monitor.locator('.monitor-worker-pulse').first();
+  const taskPulse = flow.locator('.monitor-task-pulse').first();
+  await expect(taskPulse).toHaveCSS('animation-name', 'monitor-observation');
   await expect(pulse).toHaveCSS('animation-name', 'monitor-observation');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(pulse).toHaveCSS('animation-name', 'none');
+  await expect(taskPulse).toHaveCSS('animation-name', 'none');
   await monitor.screenshot({
     path: testInfo.outputPath('manual-running-desktop.png'),
+  });
+  await flow.screenshot({
+    path: testInfo.outputPath('manual-execution-flow.png'),
   });
 
   await page.route(`**${path}**`, (route) =>
@@ -122,6 +130,10 @@ test('observes a manual run and reconnects after the real event window rolls ove
     await expect(
       monitor.getByText('Reconnecting · Running', { exact: true }),
     ).toBeVisible();
+    await expect(
+      flow.getByText(/Last verified task observations/),
+    ).toBeVisible();
+    await expect(flow.locator('.monitor-task-pulse')).toHaveCount(0);
     await expect
       .poll(async () => (await read(request, path)).state)
       .toBe('COMPLETED');
@@ -141,6 +153,9 @@ test('observes a manual run and reconnects after the real event window rolls ove
     '224',
   );
   await expect(monitor.getByText(/Exit code 0/).first()).toBeVisible();
+  await expect(flow.getByText('Success acknowledged').first()).toBeVisible();
+  await expect(flow.getByRole('listitem')).toHaveCount(4);
+  await expect(flow.locator('.monitor-task-pulse')).toHaveCount(0);
   const terminal = await read(request, path);
   expect(terminal.progress.succeeded).toBe(224);
   expect(terminal.event_window_evictions).toBeGreaterThan(0);
@@ -168,6 +183,8 @@ test('shows adaptive trial receipts separately from final processing', async ({
     timeout: 20000,
   });
   await expect(monitor.getByText(/Latest trial #/)).toBeVisible();
+  const flow = monitor.getByRole('region', { name: 'Execution flow' });
+  await expect(flow.getByText(/^Calibration trial #/u)).toBeVisible();
   await expect(monitor.getByRole('progressbar')).toHaveAttribute('value', '0');
   await expect(monitor.getByRole('progressbar')).toHaveAttribute('max', '640');
   await monitor.screenshot({
@@ -189,6 +206,8 @@ test('shows adaptive trial receipts separately from final processing', async ({
   expect(terminal.final_execution_id).toBe(terminal.pool?.execution_id);
   expect(terminal.pool?.trial).toBeNull();
   expect(terminal.progress.succeeded).toBe(640);
+  await expect(flow.getByText('Final processing pool')).toBeVisible();
+  await expect(flow.getByText('Success acknowledged').first()).toBeVisible();
   await monitor.screenshot({
     path: testInfo.outputPath('adaptive-completed.png'),
   });
@@ -211,6 +230,12 @@ test('shows an actual child exit, unknown outcomes and an unavailable run', asyn
   const terminal = await read(request, path);
   expect(terminal.progress.unknown).toBeGreaterThan(0);
   expect(terminal.error_code).toBe('worker_failure');
+  await expect(
+    monitor.locator('.monitor-worker[data-abnormal-exit="true"]').first(),
+  ).toBeVisible();
+  await expect(
+    monitor.getByText('Outcome unknown', { exact: true }).first(),
+  ).toBeVisible();
   await expect(monitor.getByText(/Exit code 23/).first()).toBeVisible();
   await expect(monitor.getByRole('progressbar')).toHaveAttribute('value', '0');
   await monitor.screenshot({ path: testInfo.outputPath('worker-failure.png') });
@@ -244,6 +269,16 @@ test('reconciles cooperative cancellation and can attach after a fast run ends',
   expect(terminal.progress.not_started).toBeGreaterThan(0);
   expect(terminal.progress.pending).toBe(0);
   expect(terminal.cancel_requested).toBe(true);
+  const finalProgress = monitor.getByRole('region', {
+    name: 'Final processing',
+  });
+  await expect(
+    finalProgress
+      .locator('.monitor-outcomes > div')
+      .filter({ hasText: 'Not started' }),
+  ).toHaveText(
+    `Not started${terminal.progress.not_started.toLocaleString('en-US')}`,
+  );
   await monitor.screenshot({
     path: testInfo.outputPath('cooperative-cancellation.png'),
   });

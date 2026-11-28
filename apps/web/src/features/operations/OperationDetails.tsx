@@ -9,6 +9,8 @@ import {
 import Icon from '@/components/Icon';
 import Select from '@/components/Select';
 
+import TaskObservations from './TaskObservations';
+
 const eventLabels: Readonly<Partial<Record<string, string>>> = {
   operation_queued: 'Run queued',
   operation_started: 'Run started',
@@ -43,6 +45,34 @@ const workerEventTypes = new Set([
   'task_succeeded',
   'task_failed',
 ]);
+
+const lifecycleEvents = [
+  { type: 'worker_started', label: 'Startup' },
+  { type: 'worker_ready', label: 'Readiness' },
+  { type: 'worker_exited', label: 'Exit' },
+] as const;
+
+function WorkerLifecycle({
+  events,
+}: {
+  readonly events: readonly OperationEvent[];
+}) {
+  return (
+    <ul
+      className="monitor-worker-lifecycle"
+      aria-label="Retained lifecycle observations"
+    >
+      {lifecycleEvents.map(({ type, label: stage }) => {
+        const observed = events.some((event) => event.type === type);
+        return (
+          <li key={type} data-observed={observed}>
+            {stage} <span>{observed ? 'observed' : 'event unavailable'}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 const workerLabels = {
   OBSERVED: 'Observed',
@@ -148,10 +178,10 @@ function AdaptiveDetails({
           </p>
         )}
       </div>
-      <div>
+      <div className="monitor-adaptive-decision">
         {selection ? (
           <>
-            <strong>
+            <strong data-fallback={selection.fallback}>
               {selection.fallback ? 'Fallback' : 'Selected'} ·{' '}
               {selection.workers}{' '}
               {selection.workers === 1 ? 'worker' : 'workers'}
@@ -218,16 +248,20 @@ function WorkerPool({
             aria-label="Confirmed worker instances"
           >
             {pool.observed_workers.map((worker) => {
-              const lastTask = poolEvents.findLast(
-                (event) =>
-                  event.instance_id === worker.instance_id &&
-                  typeof event.index === 'number',
-              );
-              const latest = poolEvents.findLast(
+              const events = poolEvents.filter(
                 (event) => event.instance_id === worker.instance_id,
               );
+              const lastTask = events.findLast((event) => event.index !== null);
+              const latest = events.at(-1);
               return (
-                <li key={worker.instance_id} className="monitor-worker">
+                <li
+                  key={worker.instance_id}
+                  className="monitor-worker"
+                  data-state={worker.state}
+                  data-abnormal-exit={
+                    worker.exit_code !== null && worker.exit_code !== 0
+                  }
+                >
                   {latest && isFresh(latest, animateAfter) && (
                     <span
                       key={latest.sequence}
@@ -248,6 +282,7 @@ function WorkerPool({
                         {workerLabels[worker.state]}
                       </span>
                     </div>
+                    <WorkerLifecycle events={events} />
                     {worker.exit_code !== null && (
                       <p>Exit code {worker.exit_code}</p>
                     )}
@@ -283,6 +318,7 @@ function RecentEvents({ snapshot }: { readonly snapshot: OperationSnapshot }) {
   const events = snapshot.events
     .filter((event) => {
       if (filter === 'workers') return event.type.startsWith('worker_');
+      if (filter === 'tasks') return event.index !== null;
       if (filter === 'calibration') return event.phase === 'calibration';
       return true;
     })
@@ -307,6 +343,7 @@ function RecentEvents({ snapshot }: { readonly snapshot: OperationSnapshot }) {
           options={[
             { value: 'all', label: 'All observations' },
             { value: 'workers', label: 'Worker lifecycle' },
+            { value: 'tasks', label: 'Task observations' },
             ...(snapshot.mode === 'adaptive'
               ? [{ value: 'calibration', label: 'Calibration' }]
               : []),
@@ -383,9 +420,11 @@ function Coverage({ snapshot }: { readonly snapshot: OperationSnapshot }) {
 export default function OperationDetails({
   snapshot,
   animateAfter,
+  stale,
 }: {
   readonly snapshot: OperationSnapshot;
   readonly animateAfter: number | null;
+  readonly stale: boolean;
 }) {
   return (
     <div className="monitor-details">
@@ -406,8 +445,13 @@ export default function OperationDetails({
         <FinalProgress progress={snapshot.progress} />
         <WorkerPool snapshot={snapshot} animateAfter={animateAfter} />
       </div>
-      <RecentEvents snapshot={snapshot} />
+      <TaskObservations
+        snapshot={snapshot}
+        animateAfter={animateAfter}
+        stale={stale}
+      />
       <Coverage snapshot={snapshot} />
+      <RecentEvents snapshot={snapshot} />
     </div>
   );
 }

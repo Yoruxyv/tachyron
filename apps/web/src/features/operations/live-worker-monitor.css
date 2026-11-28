@@ -310,6 +310,19 @@
   font-size: 12px;
 }
 
+.monitor-adaptive-decision strong {
+  display: inline-block;
+  padding: 3px 7px;
+  color: #a4e3c3;
+  background: #20332e;
+  border-radius: 4px;
+}
+
+.monitor-adaptive-decision strong[data-fallback='true'] {
+  color: #f1cc9c;
+  background: #332921;
+}
+
 .monitor-worker-list,
 .monitor-event-list {
   display: grid;
@@ -341,6 +354,28 @@
   border-radius: 5px;
 }
 
+.monitor-worker[data-state='STARTED'] {
+  border-color: #466675;
+}
+
+.monitor-worker[data-state='READY'] {
+  border-color: #416861;
+}
+
+.monitor-worker[data-state='EXITED'] .monitor-worker-icon {
+  color: #b1bbc8;
+  background: #222a33;
+  border-color: #4a5661;
+}
+
+.monitor-worker[data-abnormal-exit='true'] {
+  border-color: #955e57;
+}
+
+.monitor-worker[data-abnormal-exit='true'] .monitor-worker-state {
+  color: #ffb4ac;
+}
+
 .monitor-worker-icon svg {
   width: 14px;
   height: 14px;
@@ -360,10 +395,138 @@
   color: #a2e2d3;
 }
 
+.monitor-worker-lifecycle {
+  display: grid;
+  gap: 3px;
+  margin: 5px 0;
+  padding: 0;
+  list-style: disc inside;
+  font-size: 10px;
+}
+
+.monitor-worker-lifecycle li {
+  color: #b1bbc8;
+}
+
+.monitor-worker-lifecycle [data-observed='true'] {
+  color: #a2e2d3;
+}
+
 .monitor-worker-copy p,
 .monitor-event-list p {
   color: var(--secondary);
   font-size: 11px;
+}
+
+.monitor-flow {
+  background: #131a20;
+  border-color: #354751;
+}
+
+.monitor-panel-heading > .monitor-flow-scope {
+  padding: 4px 8px;
+  color: #b4dbe1;
+  background: #1e3038;
+  border: 1px solid #365563;
+  border-radius: 4px;
+}
+
+.monitor-task-list {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 10px 0 0;
+  list-style: decimal inside;
+}
+
+.monitor-task-list li {
+  display: grid;
+  grid-template-columns: minmax(8ch, auto) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  padding: 7px;
+  background: #171f26;
+  border: 1px solid #2d3a44;
+  border-radius: 6px;
+}
+
+.monitor-task-list h4 {
+  align-self: start;
+  margin: 0;
+  padding: 8px 3px;
+  color: #c4d8e3;
+  font: 11px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.monitor-task-list dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 1.25fr);
+  gap: 5px;
+}
+
+.monitor-task-stage {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 8px;
+  background: #1d2831;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+.monitor-task-stage dt {
+  color: #bdc8d1;
+  font-size: 11px;
+}
+
+.monitor-task-stage dd {
+  position: relative;
+  display: grid;
+  margin: 0;
+  color: #d7dfe6;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.monitor-task-stage small {
+  color: #b4c6d3;
+  font: 10px var(--mono);
+}
+
+.monitor-task-stage [data-tone='dispatch'] {
+  color: #aad3ed;
+}
+
+.monitor-task-stage [data-tone='start'] {
+  color: #a8dfe3;
+}
+
+.monitor-task-stage [data-tone='success'] {
+  color: #a4e3c3;
+}
+
+.monitor-task-stage [data-tone='failure'] {
+  color: #ffb4ac;
+}
+
+.monitor-task-stage [data-tone='uncertain'] {
+  color: #f1cc9c;
+}
+
+.monitor-task-stage [data-tone='missing'] {
+  color: #aab8c5;
+  font-weight: 400;
+}
+
+.monitor-flow-empty {
+  margin-top: 10px;
+  padding: 8px;
+  color: var(--secondary);
+  border: 1px dashed #40525d;
+  border-radius: 5px;
+  font-size: 12px;
 }
 
 .monitor-event-filter {
@@ -418,12 +581,18 @@
   font-size: 12px;
 }
 
-.monitor-worker-pulse {
+.monitor-worker-pulse,
+.monitor-task-pulse {
   position: absolute;
   pointer-events: none;
   inset: 0;
   border-radius: inherit;
   animation: monitor-observation 440ms ease-out both;
+}
+
+.monitor-task-pulse {
+  inset: -2px;
+  border-radius: 3px;
 }
 
 @keyframes monitor-observation {
@@ -445,7 +614,22 @@
   }
 }
 
+@container (max-width: 530px) {
+  .monitor-task-list li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+
+  .monitor-task-list h4 {
+    padding: 2px 3px;
+  }
+}
+
 @container (max-width: 435px) {
+  .monitor-task-stage {
+    padding-inline: 4px;
+  }
+
   .monitor-attach-actions input {
     flex-basis: 100%;
     max-width: none;
@@ -454,7 +638,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .monitor-worker-pulse {
+  .monitor-worker-pulse,
+  .monitor-task-pulse {
     animation: none;
   }
 }
