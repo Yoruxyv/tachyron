@@ -9,9 +9,11 @@ from uuid import UUID
 
 from tachyron.benchmarking.exports import _environment, _exact, _number, _telemetry
 from tachyron.execution.calibration import (
+    ADAPTIVE_MODE,
     METHOD,
     METHOD_V3,
     METHOD_V4,
+    METHOD_V5,
     WORKERS,
     CalibrationPolicy,
     Estimate,
@@ -60,20 +62,23 @@ _CALIBRATION_V2_FIELDS = {
     "sample_profiles",
     "unconfirmed_trial",
 }
+_PROGRESSIVE_FIELDS = _CALIBRATION_V2_FIELDS | {
+    "stop_reason",
+    "trial_image_budget",
+    "profile_seconds",
+    "trial_seconds",
+}
 _CALIBRATION_FIELDS = {
     "adaptive-calibration-v2": _CALIBRATION_V2_FIELDS,
-    "adaptive-calibration-v3": _CALIBRATION_V2_FIELDS
-    | {"stop_reason", "trial_image_budget", "profile_seconds", "trial_seconds"},
+    "adaptive-calibration-v3": _PROGRESSIVE_FIELDS,
+    "adaptive-calibration-v4": _PROGRESSIVE_FIELDS,
+    ADAPTIVE_MODE: _PROGRESSIVE_FIELDS,
 }
-
-
-_CALIBRATION_FIELDS["adaptive-calibration-v4"] = _CALIBRATION_FIELDS[
-    "adaptive-calibration-v3"
-]
 _METHODS = {
     "adaptive-calibration-v2": METHOD,
     "adaptive-calibration-v3": METHOD_V3,
     "adaptive-calibration-v4": METHOD_V4,
+    ADAPTIVE_MODE: METHOD_V5,
 }
 
 
@@ -81,6 +86,7 @@ _SELECTORS = {
     "adaptive-calibration-v2": select_workers,
     "adaptive-calibration-v3": select_progressive_workers,
     "adaptive-calibration-v4": select_supported_workers,
+    ADAPTIVE_MODE: select_supported_workers,
 }
 
 
@@ -428,10 +434,7 @@ def _report(
     manifest: DatasetManifest,
     policy: CalibrationPolicy,
 ) -> dict[str, object]:
-    progressive = admission["mode"] in {
-        "adaptive-calibration-v3",
-        "adaptive-calibration-v4",
-    }
+    progressive = admission["mode"] != "adaptive-calibration-v2"
     data = _exact(
         _read(directory, "adaptive.json"),
         {
@@ -558,10 +561,7 @@ def inspect_adaptive(directory: Path) -> dict[str, object]:
             or str(UUID(identifier)) != identifier
         ):
             raise ValueError("Invalid adaptive admission")
-        progressive = admission["mode"] in {
-            "adaptive-calibration-v3",
-            "adaptive-calibration-v4",
-        }
+        progressive = admission["mode"] != "adaptive-calibration-v2"
         manifest, policy = (
             _manifest(admission),
             _policy(admission["policy"], progressive=progressive),

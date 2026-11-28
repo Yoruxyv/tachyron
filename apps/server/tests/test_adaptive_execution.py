@@ -434,6 +434,8 @@ def test_adaptive_cli_and_inspection_share_python_contract(
                 "2",
                 "--height",
                 "2",
+                "--sample-files",
+                "16",
             ]
         )
         == 0
@@ -441,6 +443,8 @@ def test_adaptive_cli_and_inspection_share_python_contract(
     document = json.loads(capsys.readouterr().out)
     assert document["selection"]["status"] == "INCONCLUSIVE"
     assert document["counts"]["succeeded"] == 3
+    admission = json.loads((output / "adaptive-admission.json").read_text())
+    assert admission["policy"]["sample_files"] == 16
     assert cli.main(["inspect-adaptive", str(output)]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "COMPLETED"
 

@@ -17,9 +17,10 @@ uv run --locked --project apps/server tachyron-execute adaptive datasets/example
 uv run --locked --project apps/server tachyron-execute inspect-adaptive results/adaptive-1
 ```
 
-Defaults are 256x256 grayscale PNG, 32 sample files, three repetitions per sample
-size/candidate, seed 2026, a 60-second cooperative calibration budget, a 576-image
-trial-work cap and one fallback worker. Calibration can be slower than a fixed
+Defaults are 256x256 grayscale PNG, 32 sample files (64 on eligible large
+workloads), three repetitions per sample size and candidate, seed 2026, a
+60-second cooperative calibration budget, a 576-image trial-work cap and one
+fallback worker. Calibration can be slower than a fixed
 policy, even when a supported measured configuration is selected. Options are `--width`, `--height`, `--sample-files` (even, 16-64),
 `--repetitions` (3-5), `--budget-seconds` (1-300), `--budget-images` (1-1920),
 `--seed` (unsigned 32-bit) and
@@ -29,7 +30,7 @@ checks; an infeasible fallback produces failure without full processing.
 ```python
 from pathlib import Path
 
-from tachyron.execution import CalibrationPolicy, inspect_adaptive, run_adaptive
+from tachyron.execution import inspect_adaptive, run_adaptive
 from tachyron.processing import TransformConfig
 
 if __name__ == "__main__":
@@ -37,7 +38,6 @@ if __name__ == "__main__":
         Path("datasets/example"),
         Path("results/adaptive-1"),
         TransformConfig(256, 256),
-        policy=CalibrationPolicy(),
     )
     print(result.calibration.selection)
     print(result.total_seconds)
@@ -51,7 +51,7 @@ fallback), 1 for failed/unconfirmed, 2 for setup/publication errors, 130 for can
 
 ## Preflight and progressive budgets
 
-Version 4 keeps the feasible candidate set 1/2/4/8. CPU count, affinity, quotas
+The feasible candidate set is 1/2/4/8. CPU count, affinity, quotas
 and memory observations only constrain feasibility; they never establish a winner.
 The effective trial-image budget is `min(budget_images, input_count // 2)`.
 A complete candidate block costs `repetitions * (sample_files + sample_files // 2)`
@@ -60,6 +60,13 @@ trials, report `INCONCLUSIVE` with `calibration_work_budget_bypass`, and execute
 once with the explicit feasible fallback. With the default sample sizes and repetitions, this budget allows two complete
 blocks from 576 inputs upward. Smaller eligible datasets bypass the trials. This is a cost policy, not evidence that one worker is
 fastest. A fixed larger policy may still be substantially faster.
+
+When a full header reread would exceed 512 MiB, the automatic policy uses 64
+sample files if two such candidate blocks still fit the work budget (at least
+1,152 inputs with the default budget). Wider batches give the fit more work
+relative to pool startup, at the cost of fewer candidates under the same cap.
+An explicit Python policy or CLI sample size takes precedence. If another CLI
+calibration option differs from its default, omitting the sample size uses 32.
 
 For eligible workloads, test the fallback first, then other feasible counts in
 descending order to measure the widest contrast before filling intermediate
@@ -94,11 +101,18 @@ fit. The full run still applies local input validation and resource limits.
 ## Sampling and bounded measurements
 
 The full manifest is discovered and hashed using the existing local filesystem
-protections. Header profiling rereads and checks those identities. Profiling is
-limited to 512 MiB of compressed inputs and the calibration time budget. A partial
-profile, unsupported/corrupt header or exhausted budget cannot establish a
-representative sample; the workflow abstains. Full execution still applies the
-existing per-image validation and error semantics.
+protections. Header profiling rereads and checks those identities. If rereading
+every path would exceed the 512 MiB compressed-byte cap, profiling can reread
+one representative per distinct size and SHA-256 identity. It checks that each
+representative still matches the manifest and maps its header to paths with
+the same frozen bytes. Every path still counts in the workload and sample
+population. Trials and final execution check each path's identity before
+decoding, even for copies.
+
+The same profiling byte and time limits apply to the representative reads.
+A partial profile, unsupported or corrupt header, or exhausted budget leaves
+calibration inconclusive. Full execution applies the existing per-image
+validation and error semantics.
 
 For a complete profile, sort inputs by actual PNG/JPEG format, decoded pixels,
 compressed size and path. Split that order into equal-population strata and select
@@ -252,13 +266,15 @@ worker readiness, assignment or task-start events.
 
 ## Compatibility and telemetry
 
-The producer writes `adaptive-calibration-v4`. Inspection also accepts historical
+The producer writes `adaptive-calibration-v5`. It adds duplicate-aware profiling
+and the wider automatic sample while keeping the same trial and selection rules.
+Inspection also accepts historical
 `adaptive-calibration-v2` reports using the exact original method, five-field policy
 and exhaustive selection rule. It also reads the retained `adaptive-calibration-v3`
 prototype under its original method: that prototype activated its fractional cap
 after only the fallback and could pay calibration cost without measuring an
-alternative. Version 4 corrects that activation rule. It does not reinterpret v2/v3
-trials or rewrite archived measurements. Versions 3/4 have an explicit work budget,
+alternative. Version 4 corrects that activation rule and remains inspectable with
+its original profiling method. Versions 3–5 have an explicit work budget,
 phase costs and stop evidence; their six-field policy includes `max_trial_images`.
 The timing footer format remains unchanged because its publication boundary is unchanged.
 

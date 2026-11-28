@@ -16,8 +16,10 @@ from tachyron.benchmarking.models import Telemetry
 from tachyron.benchmarking.monitoring import Sampler
 from tachyron.benchmarking.ownership import experiment_lock
 from tachyron.execution.calibration import (
+    ADAPTIVE_MODE,
     DEFAULT_CALIBRATION_POLICY,
-    METHOD_V4,
+    METHOD_V5,
+    PROFILE_BYTES,
     CalibrationPolicy,
     Selection,
     Trial,
@@ -38,7 +40,7 @@ from tachyron.execution.runner import _admit, _run_manifest
 from tachyron.execution.sampling import (
     ImageProfile,
     choose_sample,
-    profile_images,
+    profile_adaptive_images,
     sample_manifest,
 )
 from tachyron.execution.storage import encode
@@ -103,7 +105,7 @@ class AdaptiveResult:
         """Return a bounded console summary; full sample evidence lives in adaptive.json."""
         return {
             "schema_version": 1,
-            "mode": "adaptive-calibration-v4",
+            "mode": ADAPTIVE_MODE,
             "calibration_id": self.calibration_id,
             "state": self.state,
             "selection": asdict(self.calibration.selection),
@@ -341,7 +343,7 @@ def _calibrate(
     elif minimum_images > budget:
         reason = "calibration_work_budget_bypass"
     else:
-        profiles, reason = profile_images(manifest, control.stopped)
+        profiles, reason = profile_adaptive_images(manifest, control.stopped)
     profile_seconds = perf_counter() - start
     entries = ()
     if reason is None:
@@ -442,7 +444,7 @@ def run_adaptive(
     output: Path,
     config: TransformConfig,
     *,
-    policy: CalibrationPolicy = DEFAULT_CALIBRATION_POLICY,
+    policy: CalibrationPolicy | None = None,
     limits: ResourceLimits = LOCAL_LIMITS,
     cancelled: Callable[[], bool] | None = None,
     telemetry: bool = False,
@@ -453,7 +455,7 @@ def run_adaptive(
         root: Explicitly authorized local image dataset; never an HTTP path.
         output: New workflow directory outside inputs; parent must exist.
         config: Unchanged image transformation for trials and full execution.
-        policy: Versioned sample/run/time budgets and explicit fixed fallback.
+        policy: Explicit sample/run/time budgets and fixed fallback, or automatic defaults.
         limits: Existing local policy, optionally narrowed.
         cancelled: Cooperative user cancellation, independent of calibration budget.
         telemetry: Publish a bounded overview of calibration and execution observations.
@@ -560,29 +562,42 @@ def _measure_final(
     )
 
 
+def _default_policy(manifest: DatasetManifest) -> CalibrationPolicy:
+    """Use wider batches for the profiling overflow path when two blocks fit."""
+    policy = DEFAULT_CALIBRATION_POLICY
+    if manifest.total_bytes <= PROFILE_BYTES:
+        return policy
+    wider = replace(policy, sample_files=64)
+    minimum_images = 3 * wider.sample_files * wider.repetitions
+    if trial_image_budget(len(manifest.entries), wider) < minimum_images:
+        return policy
+    return wider
+
+
 def _run_adaptive_manifest(
     manifest: DatasetManifest,
     output: Path,
     config: TransformConfig,
     *,
-    policy: CalibrationPolicy = DEFAULT_CALIBRATION_POLICY,
+    policy: CalibrationPolicy | None = None,
     cancelled: Callable[[], bool] | None = None,
     start: float,
     live: LiveTelemetry | None = None,
 ) -> AdaptiveResult:
     """Run calibration and final processing under the caller-owned host lock."""
+    policy = policy or _default_policy(manifest)
     limits = manifest.limits
     _admit(manifest, output, config)
     directory = prepare_run(manifest, output, config)
     calibration_id = live.run_id if live is not None else str(uuid4())
     admission: dict[str, object] = {
         "schema_version": 1,
-        "mode": "adaptive-calibration-v4",
+        "mode": ADAPTIVE_MODE,
         "calibration_id": calibration_id,
         "config": asdict(config),
         "limits": asdict(limits),
         "policy": asdict(policy),
-        "method": METHOD_V4,
+        "method": METHOD_V5,
         "manifest": {
             "sha256": manifest.sha256,
             "total_bytes": manifest.total_bytes,
@@ -668,7 +683,7 @@ def _run_adaptive_manifest(
         live.request_cancel()
     report: dict[str, object] = {
         "schema_version": 1,
-        "mode": "adaptive-calibration-v4",
+        "mode": ADAPTIVE_MODE,
         "calibration_id": calibration_id,
         "manifest_sha256": manifest.sha256,
         "state": state,

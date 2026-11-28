@@ -578,7 +578,7 @@ def test_adaptive_cli_artifact_uses_the_same_workflow_snapshot(tmp_path: Path) -
     assert view.selection["fallback"] is True
     evidence = inspect_adaptive(output)
     assert evidence["execution_id"] == view.final_execution_id
-    assert evidence["mode"] == "adaptive-calibration-v4"
+    assert evidence["mode"] == "adaptive-calibration-v5"
 
 
 def test_old_job_snapshots_are_evicted_without_reusing_ids(

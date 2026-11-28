@@ -15,10 +15,27 @@ from tachyron.execution import (
     run_adaptive,
     run_local,
 )
+from tachyron.execution.calibration import DEFAULT_CALIBRATION_POLICY
 from tachyron.execution.telemetry_storage import inspect_telemetry
 from tachyron.processing import ProcessingError, TransformConfig
 from tachyron.processing.models import DEFAULT_TRANSFORM
 from tachyron.workers import WorkerExecutionError
+
+
+def _adaptive_policy(args: argparse.Namespace) -> CalibrationPolicy | None:
+    """Preserve an explicit sample size or tuning choice from the CLI."""
+    defaults = DEFAULT_CALIBRATION_POLICY
+    policy = CalibrationPolicy(
+        defaults.sample_files if args.sample_files is None else args.sample_files,
+        args.repetitions,
+        args.budget_seconds,
+        args.seed,
+        args.fallback_workers,
+        args.budget_images,
+    )
+    if args.sample_files is None and policy == defaults:
+        return None
+    return policy
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -50,7 +67,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     adaptive.add_argument(
         "--fallback-workers", type=int, choices=(1, 2, 4, 8), default=1
     )
-    adaptive.add_argument("--sample-files", type=int, default=32)
+    adaptive.add_argument(
+        "--sample-files", type=int, help="Explicit sample size (even, 16-64)"
+    )
     adaptive.add_argument("--repetitions", type=int, default=3)
     adaptive.add_argument("--budget-seconds", type=float, default=60)
     adaptive.add_argument("--seed", type=int, default=2026)
@@ -82,14 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.dataset,
                     args.output,
                     TransformConfig(args.width, args.height),
-                    policy=CalibrationPolicy(
-                        args.sample_files,
-                        args.repetitions,
-                        args.budget_seconds,
-                        args.seed,
-                        args.fallback_workers,
-                        args.budget_images,
-                    ),
+                    policy=_adaptive_policy(args),
                     telemetry=args.telemetry,
                 )
             else:
